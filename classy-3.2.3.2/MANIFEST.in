@@ -1,0 +1,2 @@
+recursive-include class_public *
+prune class_public/.git

@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools", "wheel", "numpy>=1.19.0", "Cython>=0.29.21"]
+build-backend = "setuptools.build_meta"
+
+[project]
+dependencies = [
+    "numpy",
+    "scipy",
+]
+dynamic = ["version"]
+name = "classy"
+maintainers = [{name = "Nils Schöneberg",email="nils.science@gmail.com"}]
+description = "The class code from https://lesgourg.github.io/class_public/class.html"
+readme = "class_public/README.md"
+
+[project.urls]
+Homepage = "https://lesgourg.github.io/class_public/class.html"
+GitHub = "https://github.com/lesgourg/class_public"
