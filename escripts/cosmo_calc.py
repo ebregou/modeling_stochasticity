@@ -45,7 +45,9 @@ def hmf_zeus(params = None, z = 0, z_min = 0, HMF_CHOICE = 'ST'):
         z_min [float]: minimum redshift
         HMF_CHOICE [str]: choice of 'ST' for Sheth-Tormen or 'Yung' for the Tinker08 form of the HMF
     Returns:
-        HMF_Zeus: Halo mass function for the given mass range, dn/dM [M_sun^-1*Mpc^-3]
+        params[dict]: cosmological parameters with keys including 'Omega_b', 'Omega_m', 'h'
+        HMFintclass: class that contains anything you want to do with the HMF, including HMFintclass.HMF_int() which gives dn/dM with units 
+                     M_sun^-1*Mpc^-3
     """
     if params is None:
         params = get_params()
