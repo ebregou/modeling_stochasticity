@@ -35,13 +35,12 @@ def classy_cosmology(Omega_b = 0.04927, Omega_m = 0.3156, h = 0.6727, k_max = 1e
 
     return cosmo
 
-def hmf_zeus(params = None, z = 0, z_min = 0, HMF_CHOICE = 'ST'):
+def hmf_zeus(params = None, z_min = 0, HMF_CHOICE = 'ST'):
     """
     Initiate Zeus21 & calculate the relevant parameters
     Inputs:
         M_vals [float]: Mass values to calculate the HMF over
         params [dict]: cosmological parameters with keys including 'Omega_b', 'Omega_m', 'h'
-        z [float]: redshift to evaluate at
         z_min [float]: minimum redshift
         HMF_CHOICE [str]: choice of 'ST' for Sheth-Tormen or 'Yung' for the Tinker08 form of the HMF
     Returns:
