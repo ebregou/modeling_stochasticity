@@ -1,13 +1,15 @@
 # Purpose: plotting tools
 # Author: Emily Bregou
-# Depends on: matplotlib, numpy, corner
+# Depends on: matplotlib, numpy, corner, estats
 
-
+# Standard packages
 import matplotlib as mpl
 from matplotlib import pyplot as plt
 import matplotlib.ticker as ticker
 import numpy as np
 import corner
+# Local packages
+import estats
 
 class Plotting():
     def __init__(self):
@@ -85,10 +87,116 @@ class Plotting():
         return f"{x * 100:.1f}%"
 
     def plot_corner(self, samples, labels, true_vals = None):
+        """
+        Plot a corner plot, adding true values if any are given.
+        Inputs:
+            samples [array]: samples from the MCMC chain
+            labels [list]: list of labels for each of the parameters
+            true_vals [1darray]: optional true values for each parameter
+        Returns:
+            corner_plot [matplotlib figure]: corner plot showing the values and covariances of each parameter, and, optionally, their true values
+        """
         if true_vals is None:
             corner_plot = corner.corner(samples, labels=labels, color = self.red) 
         else:
             corner_plot = corner.corner(samples, labels=labels, color = self.red, truths = true_vals, truth_color=self.turquoise)
             
         return corner_plot
+
+    def plot_evolving_UVLF_fit(self, samples, my_UVLF, data_label = 'Bouwens+21', nsamples = 100, truths = None, title = 'UVLF data vs. MCMC fit'):
+        """
+        samples [ndarray]: Results from MCMC
+        my_UVLF: MCMC_UVLF object
+        """
+        # Figure out how many subplots to make
+        zs = [dat[0] for dat in my_UVLF.data]
+        nz = len(zs)
+        fig, ax = plt.subplots(1, nz, sharey = True)
+        fig.set_size_inches(3.5*nz, 3)
+        plt.subplots_adjust(wspace = 0.1)
+        
+        for i, (dat, z) in enumerate(zip(my_UVLF.data, zs)):
+    
+            # Choose random samples from the MCMC chain
+            inds = np.random.randint(len(samples), size=nsamples) # Choose nsamples from the chain
+        
+            # Decompose the data
+            zdat = dat[0]
+            zerr = dat[1]
+            xdat = dat[2]
+            ydat = dat[3]
+            yerr = dat[4] 
+            xerr = dat[5]   
+    
+            yerr = np.fmax(yerr, ydat* my_UVLF.MINRELERROR) # Make sure error bars aren't any smaller than the relative error set above
+    
+            # Plot each sample from the chain
+            for ind in inds:
+                sample = samples[ind]
+                ax[i].plot(xdat, np.log10(my_UVLF.UVLF_wrapper(zdat,zerr,xdat,xerr, sample)), alpha=nsamples/3500, color = self.red, zorder = 0)
+        
+            
+            if truths is not None: # Plot the true curve if one is known. Otherwise, plot the best fit
+                ax[i].plot(xdat, np.log10(my_UVLF.UVLF_wrapper(zdat,zerr,xdat,xerr, truths)), color = self.red, label = 'true UVLF', 
+                           zorder = 1)
+            else:
+                best_fit = np.average(samples, axis = 0)
+                ax[i].plot(xdat, np.log10(my_UVLF.UVLF_wrapper(zdat,zerr,xdat,xerr, best_fit)), color = self.red, label = f'best fit (average)', 
+                           zorder = 1)
+            
+            ax[i].plot([0], [0], color = self.red, alpha = 0.5, label = 'sampled fits') # Create the label for the samples
+            ax[i].errorbar(xdat, np.log10(ydat), estats.calc_log_error(ydat, yerr), fmt = ".", capsize=0, markersize = 10, color = self.navy, 
+                           label = data_label)
+            
+            ax[i].invert_xaxis()
+            ax[i].set_ylim(np.log10(np.min(ydat))-1, np.log10(np.max(ydat))+2)
+            ax[i].set_xlim(np.max(xdat)+0.25, np.min(xdat)-0.25)
+            ax[i].set_title(f'$z \simeq {int(zdat)}$')
+            ax[i].xaxis.set_major_locator(ticker.MaxNLocator(integer=True)) # Make it so that only integers can be used in the axis labels
+    
+        ax[0].set_ylabel(r'$\log_{10}(\phi_{\rm{UV}}$ [$\rm{mag}^{-1} \rm{Mpc}^{-3}$])')
+        fig.text(.5, -0.05, r'$M_{\rm{UV}}$ [mag]', ha = 'center')
+        fig.text(.5, 1.1, title, ha = 'center', fontsize = 20)
+        ax[-1].legend()
+    
+        return fig
+        
+
+# ------------------------------------------------------------------------------------------------------------------------------------------------
+
+def interpolate_colors(colors, steps_between):
+    """
+    Create a step-wise gradient between each color in the colors list. There are [steps_between] colors between each color in the list.
+    Inputs:
+        colors [list]: colors in hexadecimal format
+        steps_between [int]: number of steps between each color and the next in the list
+    Returns:
+        interpolated_colors [list]: a list of all of the colors that make up the stepwise gradient
+        fig [matplotlib figure]: visualization of the gradient
+    """
+    # Convert hex colors to RGB
+    rgb_colors = [np.array(to_rgb(color)) for color in hex_colors]
+    interpolated_colors = []
+    
+    # Interpolate between each pair of colors
+    for i in range(len(rgb_colors) - 1):
+        start = rgb_colors[i]
+        end = rgb_colors[i + 1]
+        for t in np.linspace(0, 1, steps_between + 2)[:-1]:  # omit the last to avoid duplicates
+            interpolated = (1 - t) * start + t * end
+            interpolated_colors.append(to_hex(interpolated))
+    
+    # Append the last color explicitly
+    interpolated_colors.append(hex_colors[-1])
+    
+    # Plot
+    fig, ax = plt.subplots(figsize=(12,2))
+    ax.set_xlim(0, len(interpolated_colors))
+    ax.set_ylim(0, 1)
+    for i, color in enumerate(interpolated_colors):
+        ax.add_patch(plt.Rectangle((i, 0), 1, 1, color=color))
+        ax.text(i + 0.5, -0.2, color, ha='center', va='top', fontsize=15, color='black', rotation=45)
+    
+    return interpolated_colors, fig
+
 
