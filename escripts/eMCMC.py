@@ -9,8 +9,13 @@ import emcee
 
 # MCMC class
 class UVLF():
-    def __init__(self, data, params1, lowers, uppers, time_dependence = False, piecewise_eps = False, piecewise_sig = False, scale = 100, 
+    def __init__(self, data, params1, lowers, uppers, time_dependence = False, piecewise_eps = False, piecewise_sig = False, scale = None, 
                  MINRELERROR = 0.2):
+        """
+        Scale is an array that describes the factor to scale each parameter has been multiplied by. The reason for multiplying some parameters by 
+        a scale factor is because some have best fit values that are very small (e.g. 0.01), especially the time-evolution parameters. Scaling
+        them up (by multiplying by 100 in this case) allows steps in each parameter to have the same order of magnitude (e.g. 1)
+        """
         self.data = data
         self.zs = [dat[0] for dat in self.data]
         self.lowers = lowers
@@ -18,7 +23,12 @@ class UVLF():
         self.params1 = params1
         self.ndim = len(params1)
         self.nwalkers = 2*self.ndim
-        self.scale = scale
+        if scale is None:
+            self.scale = np.ones_like(self.params1) # No scaling
+        else:
+            assert len(scale) == len(self.params1), 'You must provide the scale factors for every parameter'
+            self.scale = scale
+            
         self.MINRELERROR = 0.2
         self.piecewise_eps = piecewise_eps
         self.piecewise_sig = piecewise_sig
@@ -164,22 +174,25 @@ class UVLF():
         Returns:
             [log10epsstar, log10Mcstar, alphastar, betastar, sigmaUV]: values of these parameters that match the given redshift
         """
+        paramvector = paramvector / self.scale # unscale all parameters so that they are their realistic values
         if self.time_dependence:
             i = 6 # To keep track of the indices of the input vector when we don't know in advance how many parameters were passed
             # Depends on whether piecewise was used, and if so, how many redshift bins there are
-            log10Mcstar_base, dMdz, alphastar_base, dadz, betastar_base, dbdz = paramvector[:i]
+            log10Mcstar_base, dMdz, alphastar_base, dadz, betastar_base, dbdz = paramvector[:i] 
 
             # Apply time evolution
             # Divide by scale so that the d/dz parameters can scale similarly to other parameters
-            log10Mcstar = log10Mcstar_base + (dMdz*(zcenter-8)/self.scale) # Center at z = 8 like Muñoz+23
-            alphastar = alphastar_base + (dadz*(zcenter-8)/self.scale)
-            betastar = betastar_base + (dbdz*(zcenter-8)/self.scale)
+            log10Mcstar = log10Mcstar_base + (dMdz*(zcenter-8)) # Center at z = 8 like Muñoz+23
+            alphastar = alphastar_base + (dadz*(zcenter-8))
+            betastar = betastar_base + (dbdz*(zcenter-8))
 
         else:
             i = 3
-            log10Mcstar, alphastar, betastar = paramvector[:i]
+            log10Mcstar, alphastar, betastar = paramvector[:i] 
 
-        # Assign values to epsilon & sigma based off of whether we're doing linear or piecewise evolution
+        # Assign values to epsilon & sigma based off of whether we're doing linear or piecewise evolution. Piecewise refers to giving a different
+        # value of epsilon / sigma for each redshift. In these cases, we figure out which one corresponds to zcenter & return that value to be
+        # used in the UVLF_binned function.
         if piecewise_eps:
             log10epsstar_base = np.array(paramvector[i:i+len(self.zs)])
             i += len(self.zs)
@@ -191,7 +204,7 @@ class UVLF():
                 i+=1
                 dedz = paramvector[i]
                 i+=1
-                log10epsstar = log10epsstar_base + (dedz*(zcenter-8)/self.scale)
+                log10epsstar = log10epsstar_base + (dedz*(zcenter-8))
             else:
                 log10epsstar = paramvector[i]
                 i+=1
@@ -207,12 +220,22 @@ class UVLF():
                 i += 1
                 dsdz = paramvector[i]
                 i += 1
-                sigmaUV = sigmaUV_base + (dsdz*(zcenter-8)/self.scale)
+                sigmaUV = sigmaUV_base + (dsdz*(zcenter-8))
             else:
                 sigmaUV = paramvector[i]
                 i+=1
-            dsdMUV = paramvector[i]
+            
+            dsdMh = paramvector[i]
             i +=1
-            sigmaUV_vec = (sigmaUV + (dsdMUV*(MUVcenters+20)/self.scale)).reshape(-1,1)
+            sigmaUV = (sigmaUV + (dsdMh*(self.HMFintclass.Mhtab-12)))
         
-        return [log10epsstar, log10Mcstar, alphastar, betastar, sigmaUV_vec]
+        return [log10epsstar, log10Mcstar, alphastar, betastar, sigmaUV] # sigmaUV can either be a single value (corresponding to every Mh), or a
+                                                                        # vector w/ the same dimensions as self.HMFintclass.Mhtab (so one for
+                                                                        # each Mh in the mass-dependent sigmaUV case).
+
+    def get_samples(self, discard = 400):
+        """
+        to_scale [bool arr]: same dimensions as the number of parameters
+        """
+        samples = self.sampler.get_chain(discard = discard, flat=True)
+        
