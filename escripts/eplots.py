@@ -86,16 +86,18 @@ class Plotting():
         """
         return f"{x * 100:.1f}%"
 
-    def plot_corner(self, samples, labels, true_vals = None):
+    def plot_corner(self, samples, scale, labels, true_vals = None):
         """
         Plot a corner plot, adding true values if any are given.
         Inputs:
             samples [array]: samples from the MCMC chain
+            scale [array]: scales for each of the parameter values
             labels [list]: list of labels for each of the parameters
             true_vals [1darray]: optional true values for each parameter
         Returns:
             corner_plot [matplotlib figure]: corner plot showing the values and covariances of each parameter, and, optionally, their true values
         """
+        samples = samples / scale
         if true_vals is None:
             corner_plot = corner.corner(samples, labels=labels, color = self.red) 
         else:
@@ -103,7 +105,8 @@ class Plotting():
             
         return corner_plot
 
-    def plot_evolving_UVLF_fit(self, samples, my_UVLF, data_label = 'Bouwens+21', nsamples = 100, truths = None, title = 'UVLF data vs. MCMC fit'):
+    def plot_evolving_UVLF_fit(self, samples, my_UVLF, data_label = 'Bouwens+21', nsamples = 100, truths = None, 
+                               title = 'UVLF data vs. MCMC fit'):
         """
         samples [ndarray]: Results from MCMC
         my_UVLF: MCMC_UVLF object

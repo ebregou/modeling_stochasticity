@@ -4,12 +4,15 @@
 
 # Standard packages
 import numpy as np
-import zeus21
 import emcee
+
+# Local packages
+import zeus21
 
 # MCMC class
 class UVLF():
-    def __init__(self, data, params1, lowers, uppers, time_dependence = False, piecewise_eps = False, piecewise_sig = False, scale = None, 
+    def __init__(self, data, params1, lowers, uppers, time_dependence = False, mass_dependence = False, piecewise_eps = False, 
+                 piecewise_sig = False, scale = None, 
                  MINRELERROR = 0.2):
         """
         Scale is an array that describes the factor to scale each parameter has been multiplied by. The reason for multiplying some parameters by 
@@ -33,6 +36,7 @@ class UVLF():
         self.piecewise_eps = piecewise_eps
         self.piecewise_sig = piecewise_sig
         self.time_dependence = time_dependence
+        self.mass_dependence = mass_dependence
 
         # Get cosmological parameters, construct HMF from Zeus
         CosmoParams_input = zeus21.Cosmo_Parameters_Input(zmin_CLASS=0.0)
@@ -138,50 +142,48 @@ class UVLF():
         piecewise_eps = self.piecewise_eps if piecewise_eps is None else piecewise_eps
         piecewise_sig = self.piecewise_sig if piecewise_sig is None else piecewise_sig
         
-        astroparams = self.param_wrapper(paramvector, zcenter, MUVcenters, piecewise_eps, piecewise_sig)
+        astroparams = self.param_wrapper(paramvector, zcenter, piecewise_eps, piecewise_sig)
         UVLFs_std = zeus21.UVLFs.UVLF_binned(astroparams,self.CosmoParams,self.HMFintclass,zcenter,zwidth,MUVcenters,MUVwidths)
         
         return UVLFs_std
 
-    def param_wrapper(self, paramvector, zcenter, MUVcenters, piecewise_eps, piecewise_sig):
+    def param_wrapper(self, paramvector, zcenter, piecewise_eps, piecewise_sig):
         """
         Puts paramvector into a format that Zeus can read & deals with the time evolution
         Inputs:
             paramvector [1darray]: values of parameters
             zcenter [float]: center redshift value for binned UVLF data
-            MUVcenters [1darray]: the central UV magnitude in each bin
             piecewise_eps [1darray]: piecewise value of epsilon at each redshift, if applicable
             piecewise_sig [1darray]: piecewise value of sigma at each redshift, if applicable
         Outputs:
             astroparams [zeus Astro_Parameters object]: parameters for the UVLF, wrapped so that Zeus can read them
         """
-        log10epsstar, log10Mcstar, alphastar, betastar, sigmaUV = self.time_evolution(paramvector, zcenter, MUVcenters, piecewise_eps, 
-                                                                                      piecewise_sig)
+        log10epsstar, log10Mcstar, alphastar, betastar, sigmaUV = self.time_evolution(paramvector, zcenter, piecewise_eps, piecewise_sig)
         astroparams = zeus21.Astro_Parameters(self.CosmoParams,epsstar=10**log10epsstar, Mc=10**log10Mcstar,alphastar=alphastar, 
                                               betastar=betastar, sigmaUV = sigmaUV) 
         
         return astroparams
 
-    def time_evolution(self, paramvector, zcenter, MUVcenters, piecewise_eps, piecewise_sig):
+    def time_evolution(self, paramvector, zcenter, piecewise_eps, piecewise_sig):
         """
         Applies the time evolution of each parameter so that we feed the evolved value, matching the given redshift, to the UVLF wrapper
         Inputs:
             paramvector [1darray]: values of parameters
             zcenter [float]: center redshift value for binned UVLF data
-            MUVcenters [1darray]: the central UV magnitude in each bin
             piecewise_eps [1darray]: piecewise value of epsilon at each redshift, if applicable
             piecewise_sig [1darray]: piecewise value of sigma at each redshift, if applicable
         Returns:
             [log10epsstar, log10Mcstar, alphastar, betastar, sigmaUV]: values of these parameters that match the given redshift
         """
-        paramvector = paramvector / self.scale # unscale all parameters so that they are their realistic values
+        paramvector = paramvector / self.scale # unscale all parameters so that they are their true values
+        #print(paramvector)
+
         if self.time_dependence:
             i = 6 # To keep track of the indices of the input vector when we don't know in advance how many parameters were passed
             # Depends on whether piecewise was used, and if so, how many redshift bins there are
             log10Mcstar_base, dMdz, alphastar_base, dadz, betastar_base, dbdz = paramvector[:i] 
 
             # Apply time evolution
-            # Divide by scale so that the d/dz parameters can scale similarly to other parameters
             log10Mcstar = log10Mcstar_base + (dMdz*(zcenter-8)) # Center at z = 8 like Muñoz+23
             alphastar = alphastar_base + (dadz*(zcenter-8))
             betastar = betastar_base + (dbdz*(zcenter-8))
@@ -224,10 +226,11 @@ class UVLF():
             else:
                 sigmaUV = paramvector[i]
                 i+=1
-            
-            dsdMh = paramvector[i]
-            i +=1
-            sigmaUV = (sigmaUV + (dsdMh*(self.HMFintclass.Mhtab-12)))
+
+            if self.mass_dependence: # Make an array of sigmaUV corresponding (different one for each halo mass) if the toggle is on. 
+                dsdMh = paramvector[i]
+                i +=1
+                sigmaUV = (sigmaUV + (dsdMh*(np.log10(self.HMFintclass.Mhtab)-12)))
         
         return [log10epsstar, log10Mcstar, alphastar, betastar, sigmaUV] # sigmaUV can either be a single value (corresponding to every Mh), or a
                                                                         # vector w/ the same dimensions as self.HMFintclass.Mhtab (so one for
