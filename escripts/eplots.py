@@ -86,18 +86,18 @@ class Plotting():
         """
         return f"{x * 100:.1f}%"
 
-    def plot_corner(self, samples, scale, labels, true_vals = None):
+    def plot_corner(self, samples, param_data, true_vals = None):
         """
         Plot a corner plot, adding true values if any are given.
         Inputs:
             samples [array]: samples from the MCMC chain
-            scale [array]: scales for each of the parameter values
-            labels [list]: list of labels for each of the parameters
+            param_data [list of dicts]: metadata about parameters
             true_vals [1darray]: optional true values for each parameter
         Returns:
             corner_plot [matplotlib figure]: corner plot showing the values and covariances of each parameter, and, optionally, their true values
         """
-        samples = samples / scale
+        samples = samples / [p['scale'] for p in param_data if p.get('fit', True)]
+        labels = [p['label'] for p in param_data if p.get('fit', True)]
         if true_vals is None:
             corner_plot = corner.corner(samples, labels=labels, color = self.red) 
         else:
@@ -105,16 +105,21 @@ class Plotting():
             
         return corner_plot
 
-    def plot_evolving_UVLF_fit(self, samples, my_UVLF, data_label = 'Bouwens+21', nsamples = 100, truths = None, 
-                               title = 'UVLF data vs. MCMC fit'):
+    def plot_evolving_UVLF_fit(self, samples, my_UVLF, data_label = 'Bouwens+21', nsamples = 100, truths = None, title = 'UVLF data vs. MCMC fit'):
         """
         samples [ndarray]: Results from MCMC
-        my_UVLF: MCMC_UVLF object
+        my_UVLF: eMCMC UVLF object
+        data_label [str]: what you want to appear as the label for the data points w/ error bars
+        nsamples [int]: number of samples you want to appear alongside the best fit on the plot
+        truths [ndarray]: true values of parameters, if they exist
+        title [str]: overarching title of the plot
         """
         # Figure out how many subplots to make
         zs = [dat[0] for dat in my_UVLF.data]
         nz = len(zs)
         fig, ax = plt.subplots(1, nz, sharey = True)
+        if nz == 1:
+            ax = [ax]  # Make ax iterable even if it's just one subplot
         fig.set_size_inches(3.5*nz, 3)
         plt.subplots_adjust(wspace = 0.1)
         
@@ -157,6 +162,12 @@ class Plotting():
             ax[i].set_title(f'$z \simeq {int(zdat)}$')
             ax[i].xaxis.set_major_locator(ticker.MaxNLocator(integer=True)) # Make it so that only integers can be used in the axis labels
     
+        ax[-1].text(1.02, .95, 'Best fit parameter values:', transform=ax[-1].transAxes, va='top', fontsize = 10)
+        for i, (label, val) in enumerate(zip([p['label'] for p in my_UVLF.param_data if p.get('fit', True)], 
+                                             best_fit/[p['scale'] for p in my_UVLF.param_data if p.get('fit', True)])):
+            ax[-1].text(1.02, 0.95-(0.075*(i+1)), f'{label} : {round(val, 2)}', transform=ax[-1].transAxes, va='top', fontsize = 10)
+                
+        
         ax[0].set_ylabel(r'$\log_{10}(\phi_{\rm{UV}}$ [$\rm{mag}^{-1} \rm{Mpc}^{-3}$])')
         fig.text(.5, -0.05, r'$M_{\rm{UV}}$ [mag]', ha = 'center')
         fig.text(.5, 1.1, title, ha = 'center', fontsize = 20)
