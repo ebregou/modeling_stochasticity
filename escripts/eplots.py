@@ -86,7 +86,7 @@ class Plotting():
         """
         return f"{x * 100:.1f}%"
 
-    def plot_corner(self, samples, param_data, true_vals = None):
+    def plot_corner(self, samples, my_UVLF, true_vals = None):
         """
         Plot a corner plot, adding true values if any are given.
         Inputs:
@@ -96,6 +96,7 @@ class Plotting():
         Returns:
             corner_plot [matplotlib figure]: corner plot showing the values and covariances of each parameter, and, optionally, their true values
         """
+        param_data = my_UVLF.param_data
         samples = samples / [p['scale'] for p in param_data if p.get('fit', True)]
         labels = [p['label'] for p in param_data if p.get('fit', True)]
         if true_vals is None:
@@ -105,7 +106,8 @@ class Plotting():
             
         return corner_plot
 
-    def plot_evolving_UVLF_fit(self, samples, my_UVLF, data_label = 'Bouwens+21', nsamples = 100, truths = None, title = 'UVLF data vs. MCMC fit'):
+    def plot_evolving_UVLF_fit(self, samples, my_UVLF, data_label = 'Bouwens+21', nsamples = 100, truths = None, 
+                               title = 'UVLF data vs. MCMC fit'):
         """
         samples [ndarray]: Results from MCMC
         my_UVLF: eMCMC UVLF object
@@ -140,7 +142,7 @@ class Plotting():
     
             # Plot each sample from the chain
             for ind in inds:
-                sample = samples[ind]
+                sample = samples[ind] # There's no need to scale; the UVLF wrapper expects unscaled sampels
                 ax[i].plot(xdat, np.log10(my_UVLF.UVLF_wrapper(zdat,zerr,xdat,xerr, sample)), alpha=nsamples/3500, color = self.red, zorder = 0)
         
             
@@ -164,7 +166,7 @@ class Plotting():
     
         ax[-1].text(1.02, .95, 'Best fit parameter values:', transform=ax[-1].transAxes, va='top', fontsize = 10)
         for i, (label, val) in enumerate(zip([p['label'] for p in my_UVLF.param_data if p.get('fit', True)], 
-                                             best_fit/[p['scale'] for p in my_UVLF.param_data if p.get('fit', True)])):
+                                             best_fit / [p['scale'] for p in my_UVLF.param_data if p.get('fit', True)])): # Unscale for printing
             ax[-1].text(1.02, 0.95-(0.075*(i+1)), f'{label} : {round(val, 2)}', transform=ax[-1].transAxes, va='top', fontsize = 10)
                 
         

@@ -16,7 +16,7 @@ class UVLF():
         if type(self.data[0]) is not list: # Make sure the format is correct for the rest of the script if only one redshift is input
             self.data = [self.data] 
         self.zs = [dat[0] for dat in self.data]
-        self.param_data = param_data
+        self.param_data = list(param_data.values()) # Turn a dictionary of dictionaries into a list of dictionaries containing relevant parameters
         self.lowers = [p['lower'] * p['scale'] for p in self.param_data if p.get('fit', True)]
         self.uppers = [p['upper'] * p['scale'] for p in self.param_data if p.get('fit', True)]
         self.ndim = len(self.lowers)
@@ -116,61 +116,51 @@ class UVLF():
             zwdith [float]: width of the redshift bin
             MUVcenters [1darray]: the central UV magnitude in each bin
             MUVwidths [1darray]: the width of the UV magnitude bins
-            paramvector [1darray]: values of parameters
+            paramvector [1darray]: scaled values of parameters
         Outputs:
             PhiUV [1darray]: In units of mag^-1 Mpc^-3
         """
-        
-        astroparams = self.param_wrapper(paramvector, zcenter)
+
+        unscaled_params = self.time_evolution(paramvector, zcenter)
+        astroparams = self.param_wrapper(unscaled_params, zcenter)
         UVLFs_std = zeus21.UVLFs.UVLF_binned(astroparams,self.CosmoParams,self.HMFintclass,zcenter,zwidth,MUVcenters,MUVwidths)
         
         return UVLFs_std
-
-    def param_wrapper(self, paramvector, zcenter):
-        """
-        Puts paramvector into a format that Zeus can read & deals with the time evolution
-        Inputs:
-            paramvector [1darray]: values of parameters
-            zcenter [float]: center redshift value for binned UVLF data
-        Outputs:
-            astroparams [zeus Astro_Parameters object]: parameters for the UVLF, wrapped so that Zeus can read them
-        """
-        alphastar, betastar, log10Mcstar, log10epsstar, sigmaUV = self.time_evolution(paramvector, zcenter)
-        astroparams = zeus21.Astro_Parameters(self.CosmoParams,epsstar=10**log10epsstar, Mc=10**log10Mcstar,alphastar=alphastar, 
-                                              betastar=betastar, sigmaUV = sigmaUV) 
-        
-        return astroparams
 
     def time_evolution(self, paramvector, zcenter):
         """
         Applies the time evolution of each parameter so that we feed the evolved value, matching the given redshift, to the UVLF wrapper
         Inputs:
-            paramvector [1darray]: values of parameters
+            paramvector [1darray]: scaled values of parameters
             zcenter [float]: center redshift value for binned UVLF data
         Returns:
             [log10epsstar, log10Mcstar, alphastar, betastar, sigmaUV]: values of these parameters that match the given redshift
         """
+        assert len(paramvector) == len([p for p in self.param_data if p['fit']]), 'The length of paramvector does not match the number of parameters you want to fit'
+        
         # Rescale, deal with constant parameters, deal with piecewise
-        scaled_params = np.zeros(len(self.param_data))
+        unscaled_params = np.zeros(len(self.param_data))
         j = 0 # This keeps track of how far we are into paramvector
         for i, param in enumerate(self.param_data): 
             if param['fit']: # If this is a fit parameter
-                value = paramvector[j] / param['scale'] # Unscale (get back the real value of the parameter)
+                value = paramvector[j] 
                 j+=1
             else: # If this parameter is held constant
                 value = param['value']
-                if not np.isscalar(value): # Piecewise, get the value that corresponds to that redshift
-                    index = np.where(self.zs == zcenter)[0]
-                    value = value[index]
-            scaled_params[i] = value
+
+            if not np.isscalar(value): # Piecewise, get the value that corresponds to that redshift
+                index = np.where(self.zs == zcenter)[0][0]
+                value = value[index]
+                
+            unscaled_params[i] = value / param['scale'] # Unscale (get back the true value of the parameter)
 
         # Apply time & mass evolution
         final_values = []
         for i in range(5): # This is alpha*, beta*, M_h, eps*, sigmaUV, the 5 base parameters
             base_idx = 3 * i
-            value = scaled_params[base_idx]
-            time_deriv = scaled_params[base_idx+1]
-            mass_deriv = scaled_params[base_idx+2]
+            value = unscaled_params[base_idx]
+            time_deriv = unscaled_params[base_idx+1]
+            mass_deriv = unscaled_params[base_idx+2]
 
             value = value + (time_deriv*(zcenter-8))
             if mass_deriv != 0:
@@ -178,3 +168,60 @@ class UVLF():
             final_values.append(value)
 
         return final_values
+
+    def param_wrapper(self, unscaled_params, zcenter):
+        """
+        Puts paramvector into a format that Zeus can read
+        Inputs:
+            unscaled_params [1darray]: unscaled values of parameters
+            zcenter [float]: center redshift value for binned UVLF data
+        Outputs:
+            astroparams [zeus Astro_Parameters object]: parameters for the UVLF, wrapped so that Zeus can read them
+        """
+        alphastar, betastar, log10Mcstar, log10epsstar, sigmaUV = unscaled_params
+        astroparams = zeus21.Astro_Parameters(self.CosmoParams,epsstar=10**log10epsstar, Mc=10**log10Mcstar,alphastar=alphastar, 
+                                              betastar=betastar, sigmaUV = sigmaUV) 
+        
+        return astroparams
+
+def build_param_data(custom_params):
+    """
+    Builds the metadata around each parameter
+    Inputs:
+        custom_params [dict of dicts]: dictionary of dictionaries that describe how you want to modify parameters from their default values. Any
+                                       labels that aren't passed will assume their default values
+    Returns:
+        default_values [dict of dicts]: dictionary with updated data set by custom_params and default data otherwise                        
+    """
+    
+    # Master dictionary with defaults for each parameter label
+    default_values = {
+        'alpha':   {'fit': True, 'value': 0.6, 'start': 0.6, 'scale': 1, 'lower': 0, 'upper': 4, 'label': r"$\alpha$"},
+        'dalphadz':{'fit': False, 'value': 0, 'start': 0.01, 'scale': 1, 'lower': -0.5, 'upper': 0.5, 'label': r"$d\alpha/dz$"},
+        'dalphadM':{'fit': False, 'value': 0, 'start': 0.01, 'scale': 1, 'lower': -0.5, 'upper': 0.5, 'label': r"$d\alpha/dM_{h}$"},
+        'beta':    {'fit': True, 'value': -0.5, 'start': -0.5, 'scale': 1, 'lower': -1, 'upper': 0, 'label': r"$\beta$"},
+        'dbetadz': {'fit': False, 'value': 0, 'start': 0.01, 'scale': 1, 'lower': -0.5, 'upper': 0.5, 'label': r"$d\beta/dz$"},
+        'dbetadM': {'fit': False, 'value': 0, 'start': 0.01, 'scale': 1, 'lower': -0.5, 'upper': 0.5, 'label': r"$d\beta/dM_{h}$"},
+        'logMc':   {'fit': True, 'value': 12, 'start': 12, 'scale': 1, 'lower': 9, 'upper': 16, 'label': r'$\log(M_c)$'},
+        'dlogMcdz':{'fit': False, 'value': 0, 'start': 0.01, 'scale': 1, 'lower': -0.5, 'upper': 0.5, 'label': r'$d\log(M_c)/dz$'},
+        'dlogMcdM':{'fit': False, 'value': 0, 'start': 0.01, 'scale': 1, 'lower': -0.5, 'upper': 0.5, 'label': r'$d\log(M_c)/dM_{h}$'},
+        'loge':    {'fit': True, 'value': -0.5, 'start': -1, 'scale': 1, 'lower': -1, 'upper': 1, 'label': r"$\log(\epsilon_0)$"},
+        'dlogedz': {'fit': False, 'value': 0, 'start': 0.01, 'scale': 1, 'lower': -0.5, 'upper': 0.5, 'label': r'$d\log(\epsilon_0)/dz$'},
+        'dlogedM': {'fit': False, 'value': 0, 'start': 0.01, 'scale': 1, 'lower': -0.5, 'upper': 0.5, 
+                   'label': r'$d\log(\epsilon_0)/dM_{h}$'},
+        'sig':     {'fit': True, 'value': 0, 'start': 0.5, 'scale': 1, 'lower': 0, 'upper': 3, 'label': r'$\sigma_{\rm{UV}, 0}$'},
+        'dsigdz':  {'fit': False, 'value': 0, 'start': 0.01, 'scale': 1, 'lower': -0.5, 'upper': 0.5, 'label': r'$d\sigma_{\rm{UV}}/dz$'},
+        'dsigdM':  {'fit': False, 'value': 0, 'start': 0.01, 'scale': 1, 'lower': -0.5, 'upper': 0.5, 
+                    'label': r'$d\sigma_{\rm{UV}}/dM_{h}$'}
+    }
+
+    if custom_params is None:
+        return default_values
+        
+    for label in custom_params:
+        if label not in default_values:
+            raise ValueError(f"No default values found for label: {label}")
+
+        default_values[label].update(custom_params[label])
+
+    return default_values
