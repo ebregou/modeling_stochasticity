@@ -20,7 +20,7 @@ class UVLF():
         self.lowers = [p['lower'] for p in self.param_data if p.get('fit', True)]
         self.uppers = [p['upper'] for p in self.param_data if p.get('fit', True)]
         self.ndim = len(self.lowers)
-        self.nwalkers = 2*self.ndim
+        self.nwalkers = 2*self.ndim # Walkers = twice the number of parameters
         self.MINRELERROR = MINRELERROR
 
         # Get cosmological parameters, construct HMF from Zeus

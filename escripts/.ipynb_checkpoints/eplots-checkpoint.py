@@ -86,18 +86,19 @@ class Plotting():
         """
         return f"{x * 100:.1f}%"
 
-    def plot_corner(self, samples, my_UVLF, true_vals = None):
+    def plot_corner(self, samples, my_UVLF, excluded_params = [], true_vals = None):
         """
         Plot a corner plot, adding true values if any are given.
         Inputs:
             samples [array]: samples from the MCMC chain
             param_data [list of dicts]: metadata about parameters
+            excluded_params [list of strings]: any parameters that you don't want plotted in the corner plot
             true_vals [1darray]: optional true values for each parameter
         Returns:
             corner_plot [matplotlib figure]: corner plot showing the values and covariances of each parameter, and, optionally, their true values
         """
         param_data = my_UVLF.param_data
-        labels = [p['label'] for p in param_data if p.get('fit', True)]
+        labels = [p['label'] for p in param_data if ((p.get('fit', True)) & (p['label'] not in excluded_params))]
         if true_vals is None:
             corner_plot = corner.corner(samples, labels=labels, color = self.red) 
         else:
