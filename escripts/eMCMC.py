@@ -161,18 +161,18 @@ class UVLF():
                 
             params[i] = value
 
-        # Apply time & mass evolution
+        # Apply time evolution
         final_values = []
         for i in range(5): # This is alpha*, beta*, M_h, eps*, sigmaUV, the 5 base parameters
-            base_idx = 3 * i
+            base_idx = 2 * i
             value = params[base_idx]
-            time_deriv = params[base_idx+1]
-            mass_deriv = params[base_idx+2]
+            time_deriv = params[base_idx+1] # The order of the parameters are alternating base & time derivative, so this works
+            final_values.append(value+(time_deriv*(zcenter-8)))
 
-            value = value + (time_deriv*(zcenter-8))
-            if mass_deriv != 0:
-               value = (value + (mass_deriv*(np.log10(self.HMFintclass.Mhtab)-10)))
-            final_values.append(value)
+        # Apply mass dependence of sigma
+        sig = final_values[-1]
+        dsigdM = params[-1]
+        final_values[-1] = sig + (dsigdM*(np.log10(self.HMFintclass.Mhtab)-10))
 
         return final_values
 
@@ -231,17 +231,12 @@ def get_default_dict():
     default_values = {
         'alpha':   {'fit': True, 'value': 0.6, 'start': 0.6, 'lower': 0, 'upper': 4, 'label': r"$\alpha$"},
         'dalphadz':{'fit': False, 'value': 0, 'start': 0.01, 'lower': -0.5, 'upper': 0.5, 'label': r"$d\alpha/dz$"},
-        'dalphadM':{'fit': False, 'value': 0, 'start': 0.01, 'lower': -0.5, 'upper': 0.5, 'label': r"$d\alpha/dM_{h}$"},
         'beta':    {'fit': True, 'value': -0.5, 'start': -0.5, 'lower': -1, 'upper': 0, 'label': r"$\beta$"},
         'dbetadz': {'fit': False, 'value': 0, 'start': 0.01, 'lower': -0.5, 'upper': 0.5, 'label': r"$d\beta/dz$"},
-        'dbetadM': {'fit': False, 'value': 0, 'start': 0.01, 'lower': -0.5, 'upper': 0.5, 'label': r"$d\beta/dM_{h}$"},
         'logMc':   {'fit': True, 'value': 12, 'start': 12, 'lower': 9, 'upper': 16, 'label': r'$\log(M_c)$'},
         'dlogMcdz':{'fit': False, 'value': 0, 'start': 0.01, 'lower': -0.5, 'upper': 0.5, 'label': r'$d\log(M_c)/dz$'},
-        'dlogMcdM':{'fit': False, 'value': 0, 'start': 0.01, 'lower': -0.5, 'upper': 0.5, 'label': r'$d\log(M_c)/dM_{h}$'},
         'loge':    {'fit': True, 'value': -0.5, 'start': -1, 'lower': -1, 'upper': 1, 'label': r"$\log(\epsilon_0)$"},
         'dlogedz': {'fit': False, 'value': 0, 'start': 0.01, 'lower': -0.5, 'upper': 0.5, 'label': r'$d\log(\epsilon_0)/dz$'},
-        'dlogedM': {'fit': False, 'value': 0, 'start': 0.01, 'lower': -0.5, 'upper': 0.5, 
-                   'label': r'$d\log(\epsilon_0)/dM_{h}$'},
         'sig':     {'fit': True, 'value': 0, 'start': 0.5, 'lower': 0, 'upper': 6, 'label': r'$\sigma_{\rm{UV}, 10}$'},
         'dsigdz':  {'fit': False, 'value': 0, 'start': 0.01, 'lower': -0.5, 'upper': 0.5, 'label': r'$d\sigma_{\rm{UV}}/dz$'},
         'dsigdM':  {'fit': False, 'value': 0, 'start': 0.01, 'lower': -0.5, 'upper': 0.5, 

@@ -86,23 +86,29 @@ class Plotting():
         """
         return f"{x * 100:.1f}%"
 
-    def plot_corner(self, samples, my_UVLF, excluded_params = [], true_vals = None):
+    def plot_corner(self, samples, param_data, excluded_params = [], true_vals = None):
         """
         Plot a corner plot, adding true values if any are given.
         Inputs:
             samples [array]: samples from the MCMC chain
             param_data [list of dicts]: metadata about parameters
             excluded_params [list of strings]: any parameters that you don't want plotted in the corner plot
-            true_vals [1darray]: optional true values for each parameter
+            true_vals [1darray]: optional true values for each parameter. Don't include true values for parameters in excluded_params
         Returns:
             corner_plot [matplotlib figure]: corner plot showing the values and covariances of each parameter, and, optionally, their true values
         """
-        param_data = my_UVLF.param_data
-        labels = [p['label'] for p in param_data if ((p.get('fit', True)) & (p['label'] not in excluded_params))]
+        plot_labels = np.array([param['label'] for name, param in param_data.items() if param['fit'] is True])
+                  
+        # Find indices to keep
+        names = [outer_key for outer_key, inner_dict in param_data.items() if inner_dict.get('fit', True)]
+        keep = [i for i, name in enumerate(names) if name not in excluded_params]
+        # Keep only the desired columns (so that we only plot parameters not in excluded_params)
+        cut_samples = np.array([[row[i] for i in keep] for row in samples])
+        
         if true_vals is None:
-            corner_plot = corner.corner(samples, labels=labels, color = self.red) 
+            corner_plot = corner.corner(cut_samples, labels=plot_labels[keep], color = self.red) 
         else:
-            corner_plot = corner.corner(samples, labels=labels, color = self.red, truths = true_vals, truth_color=self.turquoise)
+            corner_plot = corner.corner(cut_samples, labels=plot_labels[keep], color = self.red, truths = true_vals, truth_color=self.turquoise)
             
         return corner_plot
 
@@ -177,11 +183,10 @@ class Plotting():
     
         return fig
 
-    def compare_fits(self, data, best_fits, fit_labels, UVLF_objects, data_label = 'Bouwens+21', title = 'Fit comparison'):
+    def compare_fits(self, best_fits, fit_labels, UVLF_objects, data_label = 'Bouwens+21', title = 'Fit comparison'):
         """
         Purpose: compare different best fits againste each other
         Inputs:
-            data [Ndarray]: data to plot against the fits
             best_fits [Ndarray]: list of best fit parameter values for different fits
             fit_labels [list of strings]: labels for these different fits (for the plot)
             UVLF_objects: list of eMCMC UVLF objects that correspond to the best fits. This is needed so that this function has access to the 
@@ -191,9 +196,12 @@ class Plotting():
         Outputs: Comparison figure
         """
         # Figure out how many subplots to make
+        data = UVLF_objects[0].data # Get data from one of the objects
         zs = [dat[0] for dat in data]
         nz = len(zs)
         fig, ax = plt.subplots(1, nz, sharey = True)
+        if nz == 1:
+            ax = [ax] # Make iterable
         fig.set_size_inches(3.5*nz, 3)
         plt.subplots_adjust(wspace = 0.1)
     
