@@ -1,6 +1,5 @@
 # Purpose: cosmology calculations
 # Author: Emily Bregou
-# Depends on: classy, zeus21
 
 from classy import Class
 import zeus21
@@ -39,7 +38,6 @@ def hmf_zeus(params = None, z_min = 0, HMF_CHOICE = 'ST'):
     """
     Initiate Zeus21 & calculate the relevant parameters
     Inputs:
-        M_vals [float]: Mass values to calculate the HMF over
         params [dict]: cosmological parameters with keys including 'Omega_b', 'Omega_m', 'h'
         z_min [float]: minimum redshift
         HMF_CHOICE [str]: choice of 'ST' for Sheth-Tormen or 'Yung' for the Tinker08 form of the HMF
@@ -48,20 +46,7 @@ def hmf_zeus(params = None, z_min = 0, HMF_CHOICE = 'ST'):
         HMFintclass: class that contains anything you want to do with the HMF, including HMFintclass.HMF_int() which gives dn/dM with units 
                      M_sun^-1*Mpc^-3
     """
-    if params is None:
-        params = get_params()
-    
-    # Zeus takes their parameters scaled by the hubble constant
-    h = params['h']
-    omegab =  params['Omega_b'] * h**2
-    omegac = (params['Omega_m'] - params['Omega_b']) * h**2 # omega_CDM
-    CosmoParams_input = zeus21.Cosmo_Parameters_Input(omegab, omegac, h, zmin_CLASS = z_min, HMF_CHOICE = HMF_CHOICE) 
-
-    # Run the cosmology & get parameters out
-    ClassyCosmo = zeus21.runclass(CosmoParams_input)
-    CosmoParams = zeus21.Cosmo_Parameters(CosmoParams_input, ClassyCosmo)
-
-    # Get the HMF
+    ClassyCosmo, CosmoParams = get_CosmoParams(params, z_min, HMF_CHOICE)
     HMFintclass = zeus21.HMF_interpolator(CosmoParams, ClassyCosmo)
     
     return params, HMFintclass
@@ -80,3 +65,30 @@ def get_params():
           'Omega_L': ClassCosmo.Omega_Lambda(),
           'h': 0.6727} # h -> H0/100
     return params
+
+def get_CosmoParams(params = None, z_min = 0, HMF_CHOICE = 'ST'):
+    """
+    Get CosmoParams in a format Zeus21 can read
+    Inputs:
+        params [dict]: dictionary with keys for Omega_b, Omega_m, Omega_L, and the Hubble parameter, h and the corresponding standard values from
+                       Class
+        z_min [float]: minimum redshift
+    Outputs:
+        ClassyCosmo: ouptut of running Class with the given input parameters
+        CosmoParams: cosmological parameters in a format that Zeus21 can read
+    """
+    
+    if params is None:
+        params = get_params()
+    
+    # Zeus takes their parameters scaled by the hubble constant
+    h = params['h']
+    omegab =  params['Omega_b'] * h**2
+    omegac = (params['Omega_m'] - params['Omega_b']) * h**2 # omega_CDM
+    CosmoParams_input = zeus21.Cosmo_Parameters_Input(omegab, omegac, h, zmin_CLASS = z_min, HMF_CHOICE = HMF_CHOICE) 
+
+    # Run the cosmology & get parameters out
+    ClassyCosmo = zeus21.runclass(CosmoParams_input)
+    CosmoParams = zeus21.Cosmo_Parameters(CosmoParams_input, ClassyCosmo)
+
+    return ClassyCosmo, CosmoParams

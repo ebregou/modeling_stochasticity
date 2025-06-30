@@ -1,6 +1,5 @@
 # Purpose: useful statistical calculations
 # Author: Emily Bregou
-# Depends on: numpy
 
 import numpy as np
 

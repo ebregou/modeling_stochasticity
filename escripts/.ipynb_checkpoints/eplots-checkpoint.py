@@ -1,15 +1,18 @@
 # Purpose: plotting tools
 # Author: Emily Bregou
-# Depends on: matplotlib, numpy, corner, estats
 
 # Standard packages
 import matplotlib as mpl
 from matplotlib import pyplot as plt
 import matplotlib.ticker as ticker
+from matplotlib import colors
 import numpy as np
 import corner
+import math
+
 # Local packages
 from escripts import estats
+from escripts import eMCMC
 
 class Plotting():
     def __init__(self):
@@ -79,28 +82,22 @@ class Plotting():
         ax[1].yaxis.set_major_formatter(ticker.FuncFormatter(custom_percent_formatter)) # Format percent difference with % symbols
     
         return fig, ax
-    
-    def custom_percent_formatter(x, pos):
-        """
-        Format a number as a percentage. Helper function for percent_diff_plot.
-        """
-        return f"{x * 100:.1f}%"
 
-    def plot_corner(self, samples, param_data, excluded_params = [], true_vals = None):
+    def plot_corner(self, samples, UVLF, excluded_params = [], true_vals = None):
         """
         Plot a corner plot, adding true values if any are given.
         Inputs:
             samples [array]: samples from the MCMC chain
-            param_data [list of dicts]: metadata about parameters
+            UVLF: UVLF object
             excluded_params [list of strings]: any parameters that you don't want plotted in the corner plot
             true_vals [1darray]: optional true values for each parameter. Don't include true values for parameters in excluded_params
         Returns:
             corner_plot [matplotlib figure]: corner plot showing the values and covariances of each parameter, and, optionally, their true values
         """
-        plot_labels = np.array([param['label'] for name, param in param_data.items() if param['fit'] is True])
+        plot_labels = np.array([param['label'] for name, param in UVLF.param_data.items() if param['fit'] is True])
                   
         # Find indices to keep
-        names = [outer_key for outer_key, inner_dict in param_data.items() if inner_dict.get('fit', True)]
+        names = [outer_key for outer_key, inner_dict in UVLF.param_data.items() if inner_dict.get('fit', True)]
         keep = [i for i, name in enumerate(names) if name not in excluded_params]
         # Keep only the desired columns (so that we only plot parameters not in excluded_params)
         cut_samples = np.array([[row[i] for i in keep] for row in samples])
@@ -172,7 +169,7 @@ class Plotting():
             ax[i].xaxis.set_major_locator(ticker.MaxNLocator(integer=True)) # Make it so that only integers can be used in the axis labels
     
         ax[-1].text(1.02, .95, 'Best fit parameter values:', transform=ax[-1].transAxes, va='top', fontsize = 10)
-        for i, (label, val) in enumerate(zip([p['label'] for p in my_UVLF.param_data if p.get('fit', True)], best_fit)): 
+        for i, (label, val) in enumerate(zip([p['label'] for p in list(my_UVLF.param_data.values()) if p.get('fit', True)], best_fit)): 
             ax[-1].text(1.02, 0.95-(0.075*(i+1)), f'{label} : {round(val, 2)}', transform=ax[-1].transAxes, va='top', fontsize = 10)
                 
         
@@ -183,7 +180,7 @@ class Plotting():
     
         return fig
 
-    def compare_fits(self, best_fits, fit_labels, UVLF_objects, data_label = 'Bouwens+21', title = 'Fit comparison'):
+    def compare_fits(self, best_fits, fit_labels, data, data_label = 'Bouwens+21', title = 'Fit comparison'):
         """
         Purpose: compare different best fits againste each other
         Inputs:
@@ -195,8 +192,8 @@ class Plotting():
             title [str]: overall title for the plot
         Outputs: Comparison figure
         """
+        UVLF = eMCMC.UVLF(data)
         # Figure out how many subplots to make
-        data = UVLF_objects[0].data # Get data from one of the objects
         zs = [dat[0] for dat in data]
         nz = len(zs)
         fig, ax = plt.subplots(1, nz, sharey = True)
@@ -215,14 +212,14 @@ class Plotting():
             yerr = dat[4] 
             xerr = dat[5]   
     
-            yerr = np.fmax(yerr, ydat* UVLF_objects[0].MINRELERROR) # Make sure error bars aren't any smaller than the relative error
+            yerr = np.fmax(yerr, ydat* UVLF.MINRELERROR) # Make sure error bars aren't any smaller than the relative error
             ax[i].errorbar(xdat, np.log10(ydat), estats.calc_log_error(ydat, yerr), fmt = ".", capsize=0, markersize = 10, color = self.navy, 
                            label = data_label)
     
             # Plot best fit:
-            for sample, currUVLF, label in zip(best_fits, UVLF_objects, fit_labels): #, self.hex_colors[:len(UVLF_objects)]:
-                chi2 = -2*currUVLF.log_like(sample, alt_data = data)
-                ax[i].plot(xdat, np.log10(currUVLF.UVLF_wrapper(zdat,zerr,xdat,xerr, sample)), label = f'{label}, $\chi^2 = {chi2:.0f}$', 
+            for sample, label in zip(best_fits, fit_labels): #, self.hex_colors[:len(UVLF_objects)]:
+                chi2 = -2*UVLF.log_like(sample, alt_data = data)
+                ax[i].plot(xdat, np.log10(UVLF.UVLF_wrapper(zdat,zerr,xdat,xerr,sample)), label = f'{label}, $\chi^2 = {chi2:.0f}$', 
                            zorder = 1)
             
             ax[i].invert_xaxis()
@@ -240,19 +237,22 @@ class Plotting():
 
 # ------------------------------------------------------------------------------------------------------------------------------------------------
 
-def interpolate_colors(colors, steps_between):
+def interpolate_colors(hex_colors, total_steps):
     """
     Create a step-wise gradient between each color in the colors list. There are [steps_between] colors between each color in the list.
     Inputs:
-        colors [list]: colors in hexadecimal format
-        steps_between [int]: number of steps between each color and the next in the list
+        hex_colors [list]: colors in hexadecimal format
+        total_steps [int]: number of steps in the gradient
     Returns:
         interpolated_colors [list]: a list of all of the colors that make up the stepwise gradient
         fig [matplotlib figure]: visualization of the gradient
     """
     # Convert hex colors to RGB
-    rgb_colors = [np.array(to_rgb(color)) for color in hex_colors]
+    rgb_colors = [np.array(colors.to_rgb(color)) for color in hex_colors]
     interpolated_colors = []
+
+    steps_between = math.ceil((total_steps-len(hex_colors)) / (len(hex_colors)-1)) # calculate how many colors in between each specified color
+    # to end up with the specified number of total colors (or more)
     
     # Interpolate between each pair of colors
     for i in range(len(rgb_colors) - 1):
@@ -260,7 +260,7 @@ def interpolate_colors(colors, steps_between):
         end = rgb_colors[i + 1]
         for t in np.linspace(0, 1, steps_between + 2)[:-1]:  # omit the last to avoid duplicates
             interpolated = (1 - t) * start + t * end
-            interpolated_colors.append(to_hex(interpolated))
+            interpolated_colors.append(colors.to_hex(interpolated))
     
     # Append the last color explicitly
     interpolated_colors.append(hex_colors[-1])
@@ -274,6 +274,12 @@ def interpolate_colors(colors, steps_between):
         ax.text(i + 0.5, -0.2, color, ha='center', va='top', fontsize=15, color='black', rotation=45)
     
     return interpolated_colors, fig
+
+def custom_percent_formatter(x, pos):
+    """
+    Format a number as a percentage. Helper function for percent_diff_plot.
+    """
+    return f"{x * 100:.1f}%"
     
 
 

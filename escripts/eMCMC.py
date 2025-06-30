@@ -1,24 +1,26 @@
 # Purpose: interface with Zeus to run MCMC on models of the UVLF with time-evolving sigma_UV
 # Author: Emily Bregou, Julian Muñoz
-# Depends on: numpy, zeus21, emcee
 
 # Standard packages
 import numpy as np
 import emcee
+import pandas as pd
 
 # Local packages
 import zeus21
 
 # MCMC class
 class UVLF():
-    def __init__(self, data, param_data, MINRELERROR = 0.2):
+    def __init__(self, data, param_data = None, MINRELERROR = 0.2):
         self.data = data
         if type(self.data[0]) is not list: # Make sure the format is correct for the rest of the script if only one redshift is input
             self.data = [self.data] 
         self.zs = [dat[0] for dat in self.data]
-        self.param_data = list(param_data.values()) # Turn a dictionary of dictionaries into a list of dictionaries containing relevant parameters
-        self.lowers = [p['lower'] for p in self.param_data if p.get('fit', True)]
-        self.uppers = [p['upper'] for p in self.param_data if p.get('fit', True)]
+        if param_data is None:
+            param_data = get_default_dict(table=False)
+        self.param_data = param_data
+        self.lowers = [p['lower'] for p in list(self.param_data.values()) if p.get('fit', True)]
+        self.uppers = [p['upper'] for p in list(self.param_data.values()) if p.get('fit', True)]
         self.ndim = len(self.lowers)
         self.nwalkers = 2*self.ndim # Walkers = twice the number of parameters
         self.MINRELERROR = MINRELERROR
@@ -39,7 +41,7 @@ class UVLF():
         step_size = [(upper-lower)/100 for upper, lower in zip(self.uppers, self.lowers)]
 
         # Start each walker at a different place
-        params1 = [p['start'] for p in self.param_data if p.get('fit', True)]
+        params1 = [p['start'] for p in list(self.param_data.values()) if p.get('fit', True)]
         p0 = params1 + step_size * (np.random.randn(self.nwalkers, self.ndim))
 
         # Run a short MCMC to spread the walkers out a bit
@@ -129,7 +131,7 @@ class UVLF():
         """
 
         params = self.time_evolution(paramvector, zcenter)
-        astroparams = self.param_wrapper(params, zcenter)
+        astroparams = self.param_wrapper(params)
         UVLFs_std = zeus21.UVLFs.UVLF_binned(astroparams,self.CosmoParams,self.HMFintclass,zcenter,zwidth,MUVcenters,MUVwidths)
         
         return UVLFs_std
@@ -143,12 +145,13 @@ class UVLF():
         Returns:
             [log10epsstar, log10Mcstar, alphastar, betastar, sigmaUV]: values of these parameters that match the given redshift
         """
-        assert len(paramvector) == len([p for p in self.param_data if p['fit']]), 'The length of paramvector does not match the number of parameters you want to fit'
+        param_data = list(self.param_data.values())
+        assert len(paramvector) == len([p for p in param_data if p['fit']]), 'The length of paramvector does not match the number of parameters you want to fit'
         
         # Deal with constant parameters, deal with piecewise
-        params = np.zeros(len(self.param_data))
+        params = np.zeros(len(param_data))
         j = 0 # This keeps track of how far we are into paramvector
-        for i, param in enumerate(self.param_data): 
+        for i, param in enumerate(param_data): 
             if param['fit']: # If this is a fit parameter
                 value = paramvector[j] 
                 j+=1
@@ -176,12 +179,11 @@ class UVLF():
 
         return final_values
 
-    def param_wrapper(self, params, zcenter):
+    def param_wrapper(self, params):
         """
         Puts paramvector into a format that Zeus can read
         Inputs:
             params [1darray]: parameters
-            zcenter [float]: center redshift value for binned UVLF data
         Outputs:
             astroparams [zeus Astro_Parameters object]: parameters for the UVLF, wrapped so that Zeus can read them
         """
@@ -190,6 +192,38 @@ class UVLF():
                                               betastar=betastar, sigmaUV = sigmaUV) 
         
         return astroparams
+
+    def get_best_fit(self, samples, excluded_params = []):
+        """
+        Get an array of the best fit values from MCMC samples (or, if the parameter is not fit, return the default value). This is for use in 
+        conjunction with make_table
+        Inputs:
+            samples [Ndarray]: Sample chain returned by MCMC
+            excluded_params [list]: any parameters you don't want to return
+        Outputs:
+            all_vals [list]: ordered list of best fit parameters (or default parameters where applicable)
+            all_labels [list]: TeX representation of parameters
+        """
+        best_fit = np.average(samples, axis=0) # Get best fit values from the samples
+        
+        i = 0
+        all_vals = []
+        all_labels = []
+    
+        for name, param in self.param_data.items():
+            if name in excluded_params:
+                continue
+            else: 
+                if param.get('fit', True): # Get best fit value if the parameter is fit by MCMC
+                    value = best_fit[i]
+                    i += 1
+                else: # Otherwise, take the default value
+                    value = param.get('value', None)
+                    
+            all_vals.append(round(value, 2))
+            all_labels.append(param.get('label', None))
+    
+        return all_vals, all_labels
 
 def build_param_data(custom_params):
     """
@@ -202,7 +236,7 @@ def build_param_data(custom_params):
     """
     
     # Master dictionary with defaults for each parameter label
-    default_values = get_default_dict()
+    default_values = get_default_dict(table = False)
 
     if custom_params is None:
         return default_values
@@ -215,7 +249,7 @@ def build_param_data(custom_params):
 
     return default_values
 
-def get_default_dict():
+def get_default_dict(table = True):
     """
     All supported parameters are included in this nested dictionary, including the following keys:
     'fit': when True, this will be fit with MCMC. When False, this value will be held fixed at the value provided under the 'value' key.
@@ -227,20 +261,40 @@ def get_default_dict():
     Note that you may assign the 'value' of base parameters (alpha, beta, logMc, loge, sig) to be arrays. The code will interpret these as
     piecewise values across redshift (so the length of the array must match the number of redshifts you have data to fit for). This will only work
     if 'fit' is labeled False; there is currently not support for using MCMC to fit parameters in a piecewise fashion. 
+
+    If table is true, it will return a readable pandas dataframe. If not, it will return as a dictionary.
     """
     default_values = {
         'alpha':   {'fit': True, 'value': 0.6, 'start': 0.6, 'lower': 0, 'upper': 4, 'label': r"$\alpha$"},
-        'dalphadz':{'fit': False, 'value': 0, 'start': 0.01, 'lower': -0.5, 'upper': 0.5, 'label': r"$d\alpha/dz$"},
+        'dalphadz':{'fit': True, 'value': 0, 'start': 0.01, 'lower': -0.5, 'upper': 0.5, 'label': r"$d\alpha/dz$"},
         'beta':    {'fit': True, 'value': -0.5, 'start': -0.5, 'lower': -1, 'upper': 0, 'label': r"$\beta$"},
-        'dbetadz': {'fit': False, 'value': 0, 'start': 0.01, 'lower': -0.5, 'upper': 0.5, 'label': r"$d\beta/dz$"},
+        'dbetadz': {'fit': True, 'value': 0, 'start': 0.01, 'lower': -0.5, 'upper': 0.5, 'label': r"$d\beta/dz$"},
         'logMc':   {'fit': True, 'value': 12, 'start': 12, 'lower': 9, 'upper': 16, 'label': r'$\log(M_c)$'},
-        'dlogMcdz':{'fit': False, 'value': 0, 'start': 0.01, 'lower': -0.5, 'upper': 0.5, 'label': r'$d\log(M_c)/dz$'},
+        'dlogMcdz':{'fit': True, 'value': 0, 'start': 0.01, 'lower': -0.5, 'upper': 0.5, 'label': r'$d\log(M_c)/dz$'},
         'loge':    {'fit': True, 'value': -0.5, 'start': -1, 'lower': -1, 'upper': 1, 'label': r"$\log(\epsilon_0)$"},
-        'dlogedz': {'fit': False, 'value': 0, 'start': 0.01, 'lower': -0.5, 'upper': 0.5, 'label': r'$d\log(\epsilon_0)/dz$'},
+        'dlogedz': {'fit': True, 'value': 0, 'start': 0.01, 'lower': -0.5, 'upper': 0.5, 'label': r'$d\log(\epsilon_0)/dz$'},
         'sig':     {'fit': True, 'value': 0, 'start': 0.5, 'lower': 0, 'upper': 6, 'label': r'$\sigma_{\rm{UV}, 10}$'},
-        'dsigdz':  {'fit': False, 'value': 0, 'start': 0.01, 'lower': -0.5, 'upper': 0.5, 'label': r'$d\sigma_{\rm{UV}}/dz$'},
-        'dsigdM':  {'fit': False, 'value': 0, 'start': 0.01, 'lower': -0.5, 'upper': 0.5, 
+        'dsigdz':  {'fit': True, 'value': 0, 'start': 0.01, 'lower': -0.5, 'upper': 0.5, 'label': r'$d\sigma_{\rm{UV}}/dz$'},
+        'dsigdM':  {'fit': True, 'value': 0, 'start': 0.01, 'lower': -0.5, 'upper': 0.5, 
                     'label': r'$d\sigma_{\rm{UV}}/dM_{h}$'}
     }
 
-    return default_values
+    if table:
+        return pd.DataFrame(default_values).T
+    else:
+        return default_values
+
+def make_table(best_fits, param_labels, fit_labels):
+    """
+    Make a table to compare best fit values of parameters
+    Inputs:
+        best_fits [list of lists]: list of best fit parameters
+        param_labels [list of strs]: names of parameters (rows of the table)
+        fit_labels [list]: names of each type of fit (columns of the table)
+    Outputs:
+        dataframe table with labeled parameters for comparison
+    """
+    df = pd.DataFrame(best_fits, columns = param_labels)
+    df.index = fit_labels
+    
+    return df.T
