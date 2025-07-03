@@ -18,6 +18,7 @@ class UVLF():
         self.zs = [dat[0] for dat in self.data]
         if param_data is None:
             param_data = get_default_dict(table=False)
+        self.UserParams = zeus21.User_Parameters()
         self.param_data = param_data
         self.lowers = [p['lower'] for p in list(self.param_data.values()) if p.get('fit', True)]
         self.uppers = [p['upper'] for p in list(self.param_data.values()) if p.get('fit', True)]
@@ -27,7 +28,7 @@ class UVLF():
 
         # Get cosmological parameters, construct HMF from Zeus
         CosmoParams_input = zeus21.Cosmo_Parameters_Input(zmin_CLASS=0.0)
-        self.CosmoParams,ClassyCosmo, CorrFclass, self.HMFintclass =  zeus21.cosmo_wrapper(CosmoParams_input)
+        self.CosmoParams,ClassyCosmo, CorrFclass, self.HMFintclass =  zeus21.cosmo_wrapper(self.UserParams, CosmoParams_input)
 
         # Create MCMC sampler
         self.sampler = emcee.EnsembleSampler(self.nwalkers, self.ndim, self.log_prob) 
@@ -188,7 +189,7 @@ class UVLF():
             astroparams [zeus Astro_Parameters object]: parameters for the UVLF, wrapped so that Zeus can read them
         """
         alphastar, betastar, log10Mcstar, log10epsstar, sigmaUV = params
-        astroparams = zeus21.Astro_Parameters(self.CosmoParams,epsstar=10**log10epsstar, Mc=10**log10Mcstar,alphastar=alphastar, 
+        astroparams = zeus21.Astro_Parameters(self.UserParams, self.CosmoParams, epsstar=10**log10epsstar, Mc=10**log10Mcstar,alphastar=alphastar, 
                                               betastar=betastar, sigmaUV = sigmaUV) 
         
         return astroparams

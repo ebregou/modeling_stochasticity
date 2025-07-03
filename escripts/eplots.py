@@ -140,13 +140,13 @@ class Plotting():
             ydat = dat[3]
             yerr = dat[4] 
             xerr = dat[5]   
-    
-            yerr = np.fmax(yerr, ydat* my_UVLF.MINRELERROR) # Make sure error bars aren't any smaller than the relative error set above
+
+            yerr = np.fmax(yerr, ydat*my_UVLF.MINRELERROR) # Make sure error bars aren't any smaller than the relative error set above
     
             # Plot each sample from the chain
             for ind in inds:
                 sample = samples[ind]
-                ax[i].plot(xdat, np.log10(my_UVLF.UVLF_wrapper(zdat,zerr,xdat,xerr, sample)), alpha=nsamples/3500, color = self.red, 
+                ax[i].plot(xdat, np.log10(my_UVLF.UVLF_wrapper(zdat,zerr,xdat,xerr,sample)), alpha=nsamples/3500, color = self.red, 
                            linestyle = '-', zorder = 0)
         
             
@@ -159,7 +159,8 @@ class Plotting():
                            linestyle = '-', zorder = 1)
             
             ax[i].plot([0], [0], color = self.red, alpha = 0.5, label = 'sampled fits', linestyle = '-') # Create the label for the samples
-            ax[i].errorbar(xdat, np.log10(ydat), estats.calc_log_error(ydat, yerr), fmt = ".", capsize=0, markersize = 10, color = self.navy, 
+            log_error_lower, log_error_upper = estats.calc_log_error(ydat, yerr) # This calculates half of sigma, one on each side. 
+            ax[i].errorbar(xdat, np.log10(ydat), [log_error_lower, log_error_upper], fmt = ".", capsize=0, markersize = 10, color = self.navy, 
                            label = data_label)
             
             ax[i].invert_xaxis()
@@ -209,8 +210,8 @@ class Plotting():
             zerr = dat[1]
             xdat = dat[2]
             ydat = dat[3]
-            yerr = dat[4] 
-            xerr = dat[5]   
+            yerr = dat[4:6]
+            xerr = dat[6]   
     
             yerr = np.fmax(yerr, ydat* UVLF.MINRELERROR) # Make sure error bars aren't any smaller than the relative error
             ax[i].errorbar(xdat, np.log10(ydat), estats.calc_log_error(ydat, yerr), fmt = ".", capsize=0, markersize = 10, color = self.navy, 

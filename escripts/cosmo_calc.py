@@ -89,6 +89,7 @@ def get_CosmoParams(params = None, z_min = 0, HMF_CHOICE = 'ST'):
 
     # Run the cosmology & get parameters out
     ClassyCosmo = zeus21.runclass(CosmoParams_input)
-    CosmoParams = zeus21.Cosmo_Parameters(CosmoParams_input, ClassyCosmo)
+    UserParams = zeus21.User_Parameters()
+    CosmoParams = zeus21.Cosmo_Parameters(UserParams, CosmoParams_input, ClassyCosmo)
 
     return ClassyCosmo, CosmoParams
