@@ -10,4 +10,4 @@ def calc_log_error(dat, err):
         dat [1darray]: data in linear space
         err [1darray of tuples]: error in linear space
     """
-    return err/(np.log(10)*dat) 
+    return err/(np.log(10)*dat)

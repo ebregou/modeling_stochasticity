@@ -11,8 +11,9 @@ import zeus21
 
 # MCMC class
 class UVLF():
-    def __init__(self, data, param_data = None, MINRELERROR = 0.2):
-        self.data = data
+    def __init__(self, file_names, data_labels = None, param_data = None):
+        self.sorted_data = read_data(file_names, data_labels)
+        self.data = reduce_data(self.sorted_data)
         if type(self.data[0]) is not list: # Make sure the format is correct for the rest of the script if only one redshift is input
             self.data = [self.data] 
         self.zs = [dat[0] for dat in self.data]
@@ -24,7 +25,6 @@ class UVLF():
         self.uppers = [p['upper'] for p in list(self.param_data.values()) if p.get('fit', True)]
         self.ndim = len(self.lowers)
         self.nwalkers = 2*self.ndim # Walkers = twice the number of parameters
-        self.MINRELERROR = MINRELERROR
 
         # Get cosmological parameters, construct HMF from Zeus
         CosmoParams_input = zeus21.Cosmo_Parameters_Input(zmin_CLASS=0.0)
@@ -101,20 +101,17 @@ class UVLF():
             
         for dataarrayz in data: # Add the log likelihoods together for each redshift. The log likelihood is just a sum over all the points
             # anyways, so this makes sense
-            #datHSTz4=[3.8, mags_z4,phi_z4,err_z4,errx_z4]
-            zdat = dataarrayz[0]
-            zerr = dataarrayz[1]
-            xdat = dataarrayz[2]
-            ydat = dataarrayz[3]
-            yerr = dataarrayz[4] 
-            xerr = dataarrayz[5]                
-            #izus = np.argmin(np.abs(z0list - zdat))      
             
-            yerr = np.fmax(yerr, ydat*self.MINRELERROR) # Make sure error bars aren't any smaller than the relative error set above
+            zdat, zerr, xdat, ydat, yerr_upper, yerr_lower, xerr = decompose_data(dataarrayz)
     
             uvlftheory = self.UVLF_wrapper(zdat,zerr,xdat,xerr, paramvector)
             
-            loglike_curr += -np.sum( (ydat - uvlftheory)**2/(2.0 * yerr**2) ) #assumed Gaussian, to be revisited.
+            # This applies the correct sigma to the Gaussian distribution of the likelihood, based on whether the point returned is above or below
+            # the mean, for when the datapoints have asymmetrical errorbars. 
+            yerr_asymmetrical = np.array([yerr_upper[i] if uvlftheory[i] > ydat[i] else yerr_lower[i] for i in range(len(ydat))])
+
+            # this formula is just proportional to the natural log of a Gaussian
+            loglike_curr += -np.sum((ydat - uvlftheory)**2/(2.0 * yerr_asymmetrical**2))
         
         return loglike_curr
 
@@ -277,7 +274,7 @@ def get_default_dict(table = True):
         'sig':     {'fit': True, 'value': 0, 'start': 0.5, 'lower': 0, 'upper': 6, 'label': r'$\sigma_{\rm{UV}, 10}$'},
         'dsigdz':  {'fit': True, 'value': 0, 'start': 0.01, 'lower': -0.5, 'upper': 0.5, 'label': r'$d\sigma_{\rm{UV}}/dz$'},
         'dsigdM':  {'fit': True, 'value': 0, 'start': 0.01, 'lower': -0.5, 'upper': 0.5, 
-                    'label': r'$d\sigma_{\rm{UV}}/dM_{h}$'}
+                    'label': r'$d\sigma_{\rm{UV}}/d\log(M_{h})$'}
     }
 
     if table:
@@ -299,3 +296,84 @@ def make_table(best_fits, param_labels, fit_labels):
     df.index = fit_labels
     
     return df.T
+
+def decompose_data(data, MINRELERROR = 0.2):
+    """
+    Decompose data corresponding to a single redshift into its components, ensure that the error bars are reasonable
+    Inputs:
+        data [Nx6 array]: data corresponding to a single redshift
+        MINRELERROR [float]: minimum relative error (prevents the error bars from being unrealistically small)
+    Outputs:
+        zdat, zerr, xdat, ydat, modified yerr_upper, yerr_lower, xerr (all sorted)
+    """
+    zdat = data[0] # redshift
+    zerr = data[1] # delta redshift (redshift bin)
+    xdat = data[2] # MUV
+    sorting = np.argsort(xdat) # Make sure the data is ordered by MUV
+    xdat = xdat[sorting]
+    ydat = data[3][sorting] # phiUV 
+    yerr_upper = data[4][sorting]
+    yerr_lower = data[5][sorting]
+    xerr = data[6][sorting] # error on MUV (MUV bins)
+
+    yerr_upper, yerr_lower = np.fmax(yerr_upper, ydat * MINRELERROR), np.fmax(yerr_lower, ydat*MINRELERROR) # Make sure error bars aren't any
+                                                                                                            # smaller than the relative error
+
+    return zdat, zerr, xdat, ydat, yerr_upper, yerr_lower, xerr
+
+def read_data(file_names, data_labels = None): 
+    """
+    Read in data and organize it by dataset and redshift. We want the data sorted by dataset for plotting purposes (so we can assign credit to the
+    studies that observed different things). 
+    Inputs:
+        file_names [list of strs]: file names to read data from
+        data_labels [list of strs]: names of datasets, for plotting purposes
+    Returns:
+        data, organized by dataset and redshift
+    """
+    if data_labels is None:
+        data_labels = np.full('', len(file_names))
+        
+    all_data = []
+    for fn in file_names:
+        all_data.append(np.loadtxt(fn, skiprows=2, unpack = True))
+                        
+    redshifts = np.unique(np.concatenate([data[0] for data in all_data])) # Get a list of all redshifts that exist within the files
+    dredshifts = np.ones_like(redshifts)/2. #approximate, there are true window functions to use
+
+    # Organize data by redshift
+    sorted_data = []
+    #format is     zdat = data[0] zerr = data[1] xdat = data[2],  ydat = data[3]  yerr_upper = data[4]  yerr_lower = data [5] xerr = data[6] 
+    
+    for iz,z in enumerate(redshifts):
+        z_separated = []
+        for data, label in zip(all_data, data_labels):
+            zlistindex = data[0] == 1.0*z
+            datarr = [z,dredshifts[iz], data[1][zlistindex], data[3][zlistindex], data[4][zlistindex], np.abs(data[5][zlistindex]), 
+                      #Use absolute value because the lower error bar is given as negative (centered on ydat)
+                      data[2][zlistindex], label]
+            z_separated.append(datarr)
+        sorted_data.append(z_separated)
+
+    return sorted_data
+
+def reduce_data(sorted_data): 
+    """
+    Remove the sorting by dataset and just sort by redshift. The MCMC doesn't care where the data comes from, so this is for that.
+    Inputs:
+        sorted_data [list]: from read_data, data sorted by dataset and redshift.
+    Returns:
+        reduced_data [list]: data sorted by just redshift
+    """
+    reduced_data = []
+    for zbin in sorted_data:
+        z = zbin[0][0]
+        dz = zbin[0][1]
+        MUVs = np.concatenate([dat[2] for dat in zbin])
+        phis = np.concatenate([dat[3] for dat in zbin])
+        yerr_upper = np.concatenate([dat[4] for dat in zbin])
+        yerr_lower = np.concatenate([dat[5] for dat in zbin])
+        dMUV = np.concatenate([dat[6] for dat in zbin])
+        reduced_data.append([z, dz, MUVs, phis, yerr_upper, yerr_lower, dMUV])
+
+    return reduced_data

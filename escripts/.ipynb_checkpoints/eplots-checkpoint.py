@@ -109,12 +109,10 @@ class Plotting():
             
         return corner_plot
 
-    def plot_evolving_UVLF_fit(self, samples, my_UVLF, data_label = 'Bouwens+21', nsamples = 100, truths = None, 
-                               title = 'UVLF data vs. MCMC fit'):
+    def plot_evolving_UVLF_fit(self, samples, my_UVLF, nsamples = 100, truths = None, title = 'UVLF data vs. MCMC fit'):
         """
         samples [ndarray]: Results from MCMC
         my_UVLF: eMCMC UVLF object
-        data_label [str]: what you want to appear as the label for the data points w/ error bars
         nsamples [int]: number of samples you want to appear alongside the best fit on the plot
         truths [ndarray]: true values of parameters, if they exist
         title [str]: overarching title of the plot
@@ -127,47 +125,48 @@ class Plotting():
             ax = [ax]  # Make ax iterable even if it's just one subplot
         fig.set_size_inches(3.5*nz, 3)
         plt.subplots_adjust(wspace = 0.1)
+
+        # Set the same y limits for all the plots
+        ylo, yhi = np.log10(min([min(dat[3]) for dat in my_UVLF.data]))-0.25, np.log10(max([max(dat[3]) for dat in my_UVLF.data]))+0.25 
+
+        plot_xdat, plot_xerr = my_UVLF.data[0][2], my_UVLF.data[0][5], # Use the lowest redshift MUV centers & bins to calculate the theoretical
+                                                                    # UVLF (this will make it the smoothest)
         
-        for i, (dat, z) in enumerate(zip(my_UVLF.data, zs)):
+        for i, (zbin, z) in enumerate(zip(my_UVLF.sorted_data, zs)):
     
             # Choose random samples from the MCMC chain
             inds = np.random.randint(len(samples), size=nsamples) # Choose nsamples from the chain
         
-            # Decompose the data
-            zdat = dat[0]
-            zerr = dat[1]
-            xdat = dat[2]
-            ydat = dat[3]
-            yerr = np.abs(dat[4]) # Use absolute value because the lower error bar is given as negative (centered on ydat)
-            xerr = dat[5]   
-
-            yerr = np.fmax(yerr, ydat*my_UVLF.MINRELERROR) # Make sure error bars aren't any smaller than the relative error set above
+            zdat, zerr = zbin[0][0], zbin[0][1]
     
             # Plot each sample from the chain
             for ind in inds:
                 sample = samples[ind]
-                ax[i].plot(xdat, np.log10(my_UVLF.UVLF_wrapper(zdat,zerr,xdat,xerr,sample)), alpha=nsamples/3500, color = self.red, 
+                ax[i].plot(plot_xdat, np.log10(my_UVLF.UVLF_wrapper(zdat,zerr,plot_xdat, plot_xerr,sample)), alpha=nsamples/3500, color = self.red, 
                            linestyle = '-', zorder = 0)
         
             
             if truths is not None: # Plot the true curve if one is known. Otherwise, plot the best fit
-                ax[i].plot(xdat, np.log10(my_UVLF.UVLF_wrapper(zdat,zerr,xdat,xerr, truths)), color = self.red, label = 'true UVLF', 
+                ax[i].plot(plot_xdat, np.log10(my_UVLF.UVLF_wrapper(zdat,zerr,plot_xdat,plot_xerr, truths)), color = self.red, label = 'true UVLF', 
                            linestyle = '-', zorder = 1)
             else:
                 best_fit = np.average(samples, axis = 0)
-                ax[i].plot(xdat, np.log10(my_UVLF.UVLF_wrapper(zdat,zerr,xdat,xerr, best_fit)), color = self.red, label = f'best fit (average)', 
-                           linestyle = '-', zorder = 1)
+                ax[i].plot(plot_xdat, np.log10(my_UVLF.UVLF_wrapper(zdat,zerr,plot_xdat,plot_xerr,best_fit)), color = self.red, 
+                           label = f'best fit (average)', linestyle = '-', zorder = 1)
             
             ax[i].plot([0], [0], color = self.red, alpha = 0.5, label = 'sampled fits', linestyle = '-') # Create the label for the samples
-            log_error_lower, log_error_upper = estats.calc_log_error(ydat, yerr) # This calculates half of sigma, one on each side. 
-            ax[i].errorbar(xdat, np.log10(ydat), [log_error_lower, log_error_upper], fmt = ".", capsize=0, markersize = 10, color = self.navy, 
-                           label = data_label)
+            for dat, fmt in zip(zbin, ['o', 'v', 's']):
+                _, _, xdat, ydat, yerr_upper, yerr_lower, xerr = eMCMC.decompose_data(dat)
+                yerr_lower, yerr_upper = estats.calc_log_error(ydat, yerr_lower), estats.calc_log_error(ydat, yerr_upper)
+                ax[i].errorbar(xdat, np.log10(ydat), [yerr_lower, yerr_lower], fmt = fmt, capsize=0, markersize = 9, label = dat[7], 
+                               markeredgecolor = 'none', markerfacecolor = self.navy, ecolor = self.navy)
             
             ax[i].invert_xaxis()
-            ax[i].set_ylim(np.log10(np.min(ydat))-1, np.log10(np.max(ydat))+2)
-            ax[i].set_xlim(np.max(xdat)+0.25, np.min(xdat)-0.25)
+            ax[i].set_ylim(ylo, yhi)
+            ax[i].set_xlim(np.max(plot_xdat)+0.25, np.min(plot_xdat)-0.25)
             ax[i].set_title(f'$z \simeq {int(zdat)}$')
-            ax[i].xaxis.set_major_locator(ticker.MaxNLocator(integer=True)) # Make it so that only integers can be used in the axis labels
+            ax[i].xaxis.set_major_locator(ticker.MaxNLocator(integer=True)) # Make it so that only integers can be used in the  
+                                                                                           # axis labels
     
         ax[-1].text(1.02, .95, 'Best fit parameter values:', transform=ax[-1].transAxes, va='top', fontsize = 10)
         for i, (label, val) in enumerate(zip([p['label'] for p in list(my_UVLF.param_data.values()) if p.get('fit', True)], best_fit)): 
@@ -181,19 +180,19 @@ class Plotting():
     
         return fig
 
-    def compare_fits(self, best_fits, fit_labels, data, data_label = 'Bouwens+21', title = 'Fit comparison'):
+    def compare_fits(self, file_names, data_labels, best_fits, fit_labels, data_label = 'Bouwens+21', title = 'Fit comparison'):
         """
-        Purpose: compare different best fits againste each other
+        Purpose: compare different best fits against each other
         Inputs:
+            file_names [list of strs]: list of files where data is read from
             best_fits [Ndarray]: list of best fit parameter values for different fits
             fit_labels [list of strings]: labels for these different fits (for the plot)
-            UVLF_objects: list of eMCMC UVLF objects that correspond to the best fits. This is needed so that this function has access to the 
-                          parameter data.
             data_label [str]: label assigned to the plotted data
             title [str]: overall title for the plot
         Outputs: Comparison figure
         """
-        UVLF = eMCMC.UVLF(data)
+        my_UVLF = eMCMC.UVLF(file_names, data_labels)
+        data = my_UVLF.sorted_data
         # Figure out how many subplots to make
         zs = [dat[0] for dat in data]
         nz = len(zs)
@@ -202,33 +201,35 @@ class Plotting():
             ax = [ax] # Make iterable
         fig.set_size_inches(3.5*nz, 3)
         plt.subplots_adjust(wspace = 0.1)
+
+        # Set the same y limits for all the plots
+        ylo, yhi = np.log10(min([min(dat[3]) for dat in my_UVLF.data]))-0.25, np.log10(max([max(dat[3]) for dat in my_UVLF.data]))+0.25
+
+        plot_xdat, plot_xerr = my_UVLF.data[0][2], my_UVLF.data[0][5], # Use the lowest redshift MUV centers & bins to calculate the theoretical
+                                                                    # UVLF (this will make it the smoothest)
     
-        for i, (dat, z) in enumerate(zip(data, zs)):
-        
-            # Decompose the data
-            zdat = dat[0]
-            zerr = dat[1]
-            xdat = dat[2]
-            ydat = dat[3]
-            yerr = dat[4:6]
-            xerr = dat[6]   
-    
-            yerr = np.fmax(yerr, ydat* UVLF.MINRELERROR) # Make sure error bars aren't any smaller than the relative error
-            ax[i].errorbar(xdat, np.log10(ydat), estats.calc_log_error(ydat, yerr), fmt = ".", capsize=0, markersize = 10, color = self.navy, 
-                           label = data_label)
+        for i, (zbin, z) in enumerate(zip(data, zs)):
+            zdat, zerr = zbin[0][0], zbin[0][1]
+            
     
             # Plot best fit:
             for sample, label in zip(best_fits, fit_labels): #, self.hex_colors[:len(UVLF_objects)]:
-                chi2 = -2*UVLF.log_like(sample, alt_data = data)
-                ax[i].plot(xdat, np.log10(UVLF.UVLF_wrapper(zdat,zerr,xdat,xerr,sample)), label = f'{label}, $\chi^2 = {chi2:.0f}$', 
-                           zorder = 1)
+                chi2 = -2*my_UVLF.log_like(sample, alt_data = my_UVLF.data)
+                ax[i].plot(plot_xdat, np.log10(my_UVLF.UVLF_wrapper(zdat,zerr,plot_xdat,plot_xerr,sample)), 
+                           label = f'{label}, $\chi^2 = {chi2:.0f}$', zorder = 1)
+
+            for dat, fmt in zip(zbin, ['o', 'v', 's']):
+                _, _, xdat, ydat, yerr_upper, yerr_lower, xerr = eMCMC.decompose_data(dat)
+                yerr_lower, yerr_upper = estats.calc_log_error(ydat, yerr_lower), estats.calc_log_error(ydat, yerr_upper)
+                ax[i].errorbar(xdat, np.log10(ydat), [yerr_lower, yerr_lower], fmt = fmt, capsize=0, markersize = 9, label = dat[7], 
+                               markeredgecolor = 'none', markerfacecolor = self.navy, ecolor = self.navy)
             
             ax[i].invert_xaxis()
-            ax[i].set_ylim(np.log10(np.min(ydat))-1, np.log10(np.max(ydat))+2)
-            ax[i].set_xlim(np.max(xdat)+0.25, np.min(xdat)-0.25)
+            ax[i].set_ylim(ylo, yhi)
+            ax[i].set_xlim(np.max(plot_xdat)+0.25, np.min(plot_xdat)-0.25)
             ax[i].set_title(f'$z \simeq {int(zdat)}$')
-            ax[i].xaxis.set_major_locator(ticker.MaxNLocator(integer=True)) # Make it so that only integers can be used in the axis labels
-    
+            ax[i].xaxis.set_major_locator(ticker.MaxNLocator(integer=True)) # Make it so that only integers can be used in the  
+                                                                                           # axis labels
         ax[0].set_ylabel(r'$\log_{10}(\phi_{\rm{UV}}$ [$\rm{mag}^{-1} \rm{Mpc}^{-3}$])')
         fig.text(.5, -0.05, r'$M_{\rm{UV}}$ [mag]', ha = 'center')
         fig.text(.5, 1.1, title, ha = 'center', fontsize = 20)
@@ -238,12 +239,13 @@ class Plotting():
 
 # ------------------------------------------------------------------------------------------------------------------------------------------------
 
-def interpolate_colors(hex_colors, total_steps):
+def interpolate_colors(hex_colors, total_steps, show_plot = False):
     """
     Create a step-wise gradient between each color in the colors list. There are [steps_between] colors between each color in the list.
     Inputs:
         hex_colors [list]: colors in hexadecimal format
         total_steps [int]: number of steps in the gradient
+        show_plot [bool]: whether or not to show the gradient as a plot
     Returns:
         interpolated_colors [list]: a list of all of the colors that make up the stepwise gradient
         fig [matplotlib figure]: visualization of the gradient
@@ -265,22 +267,23 @@ def interpolate_colors(hex_colors, total_steps):
     
     # Append the last color explicitly
     interpolated_colors.append(hex_colors[-1])
-    
-    # Plot
-    fig, ax = plt.subplots(figsize=(12,2))
-    ax.set_xlim(0, len(interpolated_colors))
-    ax.set_ylim(0, 1)
-    for i, color in enumerate(interpolated_colors):
-        ax.add_patch(plt.Rectangle((i, 0), 1, 1, color=color))
-        ax.text(i + 0.5, -0.2, color, ha='center', va='top', fontsize=15, color='black', rotation=45)
-    
-    return interpolated_colors, fig
+
+    if show_plot:
+        fig, ax = plt.subplots(figsize=(12,2))
+        ax.set_xlim(0, len(interpolated_colors))
+        ax.set_ylim(0, 1)
+        for i, color in enumerate(interpolated_colors):
+            ax.add_patch(plt.Rectangle((i, 0), 1, 1, color=color))
+            ax.text(i + 0.5, -0.2, color, ha='center', va='top', fontsize=15, color='black', rotation=45)
+        
+        return interpolated_colors, fig
+    else:
+        return interpolated_colors
 
 def custom_percent_formatter(x, pos):
     """
     Format a number as a percentage. Helper function for percent_diff_plot.
     """
     return f"{x * 100:.1f}%"
-    
 
 
