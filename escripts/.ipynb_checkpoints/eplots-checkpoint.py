@@ -83,7 +83,7 @@ class Plotting():
     
         return fig, ax
 
-    def plot_corner(self, samples, UVLF, excluded_params = [], true_vals = None):
+    def plot_corner(self, samples, UVLF, excluded_params = [], true_vals = None, title = ''):
         """
         Plot a corner plot, adding true values if any are given.
         Inputs:
@@ -91,6 +91,7 @@ class Plotting():
             UVLF: UVLF object
             excluded_params [list of strings]: any parameters that you don't want plotted in the corner plot
             true_vals [1darray]: optional true values for each parameter. Don't include true values for parameters in excluded_params
+            title [str]: plot title
         Returns:
             corner_plot [matplotlib figure]: corner plot showing the values and covariances of each parameter, and, optionally, their true values
         """
@@ -106,6 +107,8 @@ class Plotting():
             corner_plot = corner.corner(cut_samples, labels=plot_labels[keep], color = self.red) 
         else:
             corner_plot = corner.corner(cut_samples, labels=plot_labels[keep], color = self.red, truths = true_vals, truth_color=self.turquoise)
+
+        corner_plot.suptitle(title, y = 1.02)
             
         return corner_plot
 
@@ -180,14 +183,14 @@ class Plotting():
     
         return fig
 
-    def compare_fits(self, file_names, data_labels, best_fits, fit_labels, data_label = 'Bouwens+21', title = 'Fit comparison'):
+    def compare_fits(self, file_names, data_labels, best_fits, fit_labels, title = 'Fit comparison'):
         """
         Purpose: compare different best fits against each other
         Inputs:
             file_names [list of strs]: list of files where data is read from
-            best_fits [Ndarray]: list of best fit parameter values for different fits
+            data_labels [list of strs]: legend keys for different datasets
+            best_fits [list of lists]: list of best fit parameter values for different fits
             fit_labels [list of strings]: labels for these different fits (for the plot)
-            data_label [str]: label assigned to the plotted data
             title [str]: overall title for the plot
         Outputs: Comparison figure
         """
@@ -213,10 +216,11 @@ class Plotting():
             
     
             # Plot best fit:
-            for sample, label in zip(best_fits, fit_labels): #, self.hex_colors[:len(UVLF_objects)]:
+            for sample, label, color, ls in zip(best_fits, fit_labels, [self.red, self.turquoise, self.yellow, self.orange], 
+                                                ['solid', 'dashdot', 'dashed', 'dotted']): 
                 chi2 = -2*my_UVLF.log_like(sample, alt_data = my_UVLF.data)
                 ax[i].plot(plot_xdat, np.log10(my_UVLF.UVLF_wrapper(zdat,zerr,plot_xdat,plot_xerr,sample)), 
-                           label = f'{label}, $\chi^2 = {chi2:.0f}$', zorder = 1)
+                           label = f'{label}, $\chi^2 = {chi2:.0f}$', zorder = 1, color = color, linestyle = ls)
 
             for dat, fmt in zip(zbin, ['o', 'v', 's']):
                 _, _, xdat, ydat, yerr_upper, yerr_lower, xerr = eMCMC.decompose_data(dat)

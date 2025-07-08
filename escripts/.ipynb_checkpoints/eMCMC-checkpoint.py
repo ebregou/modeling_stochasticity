@@ -9,6 +9,8 @@ import pandas as pd
 # Local packages
 import zeus21
 
+print('dust is currently turned off at high z')
+
 # MCMC class
 class UVLF():
     def __init__(self, file_names, data_labels = None, param_data = None):
@@ -273,7 +275,7 @@ def get_default_dict(table = True):
         'dlogedz': {'fit': True, 'value': 0, 'start': 0.01, 'lower': -0.5, 'upper': 0.5, 'label': r'$d\log(\epsilon_0)/dz$'},
         'sig':     {'fit': True, 'value': 0, 'start': 0.5, 'lower': 0, 'upper': 6, 'label': r'$\sigma_{\rm{UV}, 10}$'},
         'dsigdz':  {'fit': True, 'value': 0, 'start': 0.01, 'lower': -0.5, 'upper': 0.5, 'label': r'$d\sigma_{\rm{UV}}/dz$'},
-        'dsigdM':  {'fit': True, 'value': 0, 'start': 0.01, 'lower': -0.5, 'upper': 0.5, 
+        'dsigdlogM':  {'fit': True, 'value': 0, 'start': 0.01, 'lower': -0.5, 'upper': 0.5, 
                     'label': r'$d\sigma_{\rm{UV}}/d\log(M_{h})$'}
     }
 
