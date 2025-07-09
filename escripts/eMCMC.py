@@ -9,8 +9,6 @@ import pandas as pd
 # Local packages
 import zeus21
 
-print('dust is currently turned off at high z')
-
 # MCMC class
 class UVLF():
     def __init__(self, file_names, data_labels = None, param_data = None):
@@ -193,22 +191,24 @@ class UVLF():
         
         return astroparams
 
-    def get_best_fit(self, samples, excluded_params = []):
+    def get_fit(self, discard=400, excluded_params = []):
         """
-        Get an array of the best fit values from MCMC samples (or, if the parameter is not fit, return the default value). This is for use in 
-        conjunction with make_table
+        Get samples and best fit values from MCMC samples (or, if the parameter is not fit, return the default value).
         Inputs:
-            samples [Ndarray]: Sample chain returned by MCMC
+            discard [int]: number of steps in the chain to discard
             excluded_params [list]: any parameters you don't want to return
         Outputs:
+            samples [Ndarray]: MCMC chain samples
             all_vals [list]: ordered list of best fit parameters (or default parameters where applicable)
-            all_labels [list]: TeX representation of parameters
+            all_labels [list]: TeX representation of parameters, used with make_table()
         """
-        best_fit = np.average(samples, axis=0) # Get best fit values from the samples
         
         i = 0
         all_vals = []
         all_labels = []
+
+        samples = self.sampler.flatchain[discard:]
+        best_fit = samples[np.argmax(self.sampler.flatlnprobability[discard:])] # Get highest probability sample
     
         for name, param in self.param_data.items():
             if name in excluded_params:
@@ -219,11 +219,13 @@ class UVLF():
                     i += 1
                 else: # Otherwise, take the default value
                     value = param.get('value', None)
-                    
-            all_vals.append(round(value, 2))
+            if value == 0:
+                all_vals.append(0) # Keep track if the value is exactly zero
+            else:
+                all_vals.append(round(value, 2))
             all_labels.append(param.get('label', None))
     
-        return all_vals, all_labels
+        return samples, all_vals, all_labels
 
 def build_param_data(custom_params):
     """
@@ -294,6 +296,8 @@ def make_table(best_fits, param_labels, fit_labels):
     Outputs:
         dataframe table with labeled parameters for comparison
     """
+    for i in range(len(best_fits)):
+        best_fits[i] = ['-' if item == 0 else item for item in best_fits[i]]
     df = pd.DataFrame(best_fits, columns = param_labels)
     df.index = fit_labels
     

@@ -6,6 +6,8 @@ import matplotlib as mpl
 from matplotlib import pyplot as plt
 import matplotlib.ticker as ticker
 from matplotlib import colors
+from matplotlib.legend_handler import HandlerLine2D
+from matplotlib.lines import Line2D
 import numpy as np
 import corner
 import math
@@ -290,4 +292,15 @@ def custom_percent_formatter(x, pos):
     """
     return f"{x * 100:.1f}%"
 
+class HandlerStackedLine(HandlerLine2D): # Inherits from the HandlerLine2D class in matplotlib
+    """
+    Creates multiple horizontal lines to represent a single label in an axis. Initiate with a list of colors you want to include lines for
+    """
+    def __init__(self, colors, *args, **kwargs):
+        self.colors = colors[::-1] # Fix the ordering for the way we plot later
+        super().__init__(*args, **kwargs)
+    def create_artists(self, legend, orig_handle, xdescent, ydescent, width, height, fontsize, trans):
+        # Override the typical create_artists function in HandlerLine2D; use this one instead
+        return [Line2D([xdescent, xdescent + width], [ydescent + (i-0.3) * 6] * 2, color=self.colors[i], transform=trans)
+                for i in range(len(self.colors))]
 
