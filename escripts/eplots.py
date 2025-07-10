@@ -99,10 +99,9 @@ class Plotting():
         """
         plot_labels = np.array([param['label'] for name, param in UVLF.param_data.items() if param['fit'] is True])
                   
-        # Find indices to keep
+        # Keep only the desired columns (so that we only plot parameters not in excluded_params)
         names = [outer_key for outer_key, inner_dict in UVLF.param_data.items() if inner_dict.get('fit', True)]
         keep = [i for i, name in enumerate(names) if name not in excluded_params]
-        # Keep only the desired columns (so that we only plot parameters not in excluded_params)
         cut_samples = np.array([[row[i] for i in keep] for row in samples])
         
         if true_vals is None:

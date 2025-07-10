@@ -199,33 +199,32 @@ class UVLF():
             excluded_params [list]: any parameters you don't want to return
         Outputs:
             samples [Ndarray]: MCMC chain samples
-            all_vals [list]: ordered list of best fit parameters (or default parameters where applicable)
+            best_fit [list]: ordered list of best fit parameters (or default parameters where applicable)
             all_labels [list]: TeX representation of parameters, used with make_table()
         """
-        
-        i = 0
-        all_vals = []
-        all_labels = []
+        samples = self.sampler.get_chain(discard = discard, flat=True)
+        best_fit_data = samples[np.argmax(self.sampler.get_log_prob(discard=discard, flat=True))] # Get highest probability sample
 
-        samples = self.sampler.flatchain[discard:]
-        best_fit = samples[np.argmax(self.sampler.flatlnprobability[discard:])] # Get highest probability sample
+        i = 0
+        best_fit = []
+        all_labels = []
     
         for name, param in self.param_data.items():
             if name in excluded_params:
                 continue
             else: 
                 if param.get('fit', True): # Get best fit value if the parameter is fit by MCMC
-                    value = best_fit[i]
+                    value = best_fit_data[i]
                     i += 1
                 else: # Otherwise, take the default value
                     value = param.get('value', None)
             if value == 0:
-                all_vals.append(0) # Keep track if the value is exactly zero
+                best_fit.append(0) # Keep track if the value is exactly zero
             else:
-                all_vals.append(round(value, 2))
+                best_fit.append(round(value, 2))
             all_labels.append(param.get('label', None))
     
-        return samples, all_vals, all_labels
+        return samples, best_fit, all_labels
 
 def build_param_data(custom_params):
     """
