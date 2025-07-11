@@ -122,8 +122,7 @@ class Plotting():
         title [str]: overarching title of the plot
         """
         # Figure out how many subplots to make
-        zs = [dat[0] for dat in my_UVLF.data]
-        nz = len(zs)
+        nz = len(my_UVLF.data)
         fig, ax = plt.subplots(1, nz, sharey = True)
         if nz == 1:
             ax = [ax]  # Make ax iterable even if it's just one subplot
@@ -136,7 +135,7 @@ class Plotting():
         plot_xdat, plot_xerr = my_UVLF.data[0][2], my_UVLF.data[0][5], # Use the lowest redshift MUV centers & bins to calculate the theoretical
                                                                     # UVLF (this will make it the smoothest)
         
-        for i, (zbin, z) in enumerate(zip(my_UVLF.sorted_data, zs)):
+        for i, zbin in enumerate(my_UVLF.sorted_data):
     
             # Choose random samples from the MCMC chain
             inds = np.random.randint(len(samples), size=nsamples) # Choose nsamples from the chain
@@ -162,7 +161,7 @@ class Plotting():
             for dat, fmt in zip(zbin, ['o', 'v', 's']):
                 _, _, xdat, ydat, yerr_upper, yerr_lower, xerr = eMCMC.decompose_data(dat)
                 yerr_lower, yerr_upper = estats.calc_log_error(ydat, yerr_lower), estats.calc_log_error(ydat, yerr_upper)
-                ax[i].errorbar(xdat, np.log10(ydat), [yerr_lower, yerr_lower], fmt = fmt, capsize=0, markersize = 9, label = dat[7], 
+                ax[i].errorbar(xdat, np.log10(ydat), [yerr_lower, yerr_upper], fmt = fmt, capsize=0, markersize = 9, label = dat[7], 
                                markeredgecolor = 'none', markerfacecolor = self.navy, ecolor = self.navy)
             
             ax[i].invert_xaxis()
@@ -198,8 +197,7 @@ class Plotting():
         my_UVLF = eMCMC.UVLF(file_names, data_labels)
         data = my_UVLF.sorted_data
         # Figure out how many subplots to make
-        zs = [dat[0] for dat in data]
-        nz = len(zs)
+        nz = len(data)
         fig, ax = plt.subplots(1, nz, sharey = True)
         if nz == 1:
             ax = [ax] # Make iterable
@@ -212,7 +210,7 @@ class Plotting():
         plot_xdat, plot_xerr = my_UVLF.data[0][2], my_UVLF.data[0][5], # Use the lowest redshift MUV centers & bins to calculate the theoretical
                                                                     # UVLF (this will make it the smoothest)
     
-        for i, (zbin, z) in enumerate(zip(data, zs)):
+        for i, zbin in enumerate(data):
             zdat, zerr = zbin[0][0], zbin[0][1]
             
     

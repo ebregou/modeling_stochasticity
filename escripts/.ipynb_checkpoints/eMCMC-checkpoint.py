@@ -309,17 +309,15 @@ def decompose_data(data, MINRELERROR = 0.2):
         data [Nx6 array]: data corresponding to a single redshift
         MINRELERROR [float]: minimum relative error (prevents the error bars from being unrealistically small)
     Outputs:
-        zdat, zerr, xdat, ydat, modified yerr_upper, yerr_lower, xerr (all sorted)
+        zdat, zerr, xdat, ydat, modified yerr_upper, yerr_lower, xerr
     """
     zdat = data[0] # redshift
     zerr = data[1] # delta redshift (redshift bin)
     xdat = data[2] # MUV
-    sorting = np.argsort(xdat) # Make sure the data is ordered by MUV
-    xdat = xdat[sorting]
-    ydat = data[3][sorting] # phiUV 
-    yerr_upper = data[4][sorting]
-    yerr_lower = data[5][sorting]
-    xerr = data[6][sorting] # error on MUV (MUV bins)
+    ydat = data[3]# phiUV 
+    yerr_upper = data[4]
+    yerr_lower = data[5]
+    xerr = data[6] # error on MUV (MUV bins)
 
     yerr_upper, yerr_lower = np.fmax(yerr_upper, ydat * MINRELERROR), np.fmax(yerr_lower, ydat*MINRELERROR) # Make sure error bars aren't any
                                                                                                             # smaller than the relative error
@@ -364,21 +362,23 @@ def read_data(file_names, data_labels = None):
 
 def reduce_data(sorted_data): 
     """
-    Remove the sorting by dataset and just sort by redshift. The MCMC doesn't care where the data comes from, so this is for that.
+    Remove the sorting by dataset and just sort by redshift. Make sure the data go in order of MUV. The MCMC doesn't care where the data comes
+    from, so this is for that.
     Inputs:
         sorted_data [list]: from read_data, data sorted by dataset and redshift.
     Returns:
-        reduced_data [list]: data sorted by just redshift
+        reduced_data [list]: data sorted by just redshift, ordered by MUV
     """
     reduced_data = []
     for zbin in sorted_data:
         z = zbin[0][0]
         dz = zbin[0][1]
-        MUVs = np.concatenate([dat[2] for dat in zbin])
-        phis = np.concatenate([dat[3] for dat in zbin])
-        yerr_upper = np.concatenate([dat[4] for dat in zbin])
-        yerr_lower = np.concatenate([dat[5] for dat in zbin])
-        dMUV = np.concatenate([dat[6] for dat in zbin])
+        sorting = [np.argsort(dat[2]) for dat in zbin] # Make sure the data is ordered by MUV
+        MUVs = np.concatenate([dat[2][sort] for dat, sort in zip(zbin, sorting)])
+        phis = np.concatenate([dat[3][sort] for dat, sort in zip(zbin, sorting)])
+        yerr_upper = np.concatenate([dat[4][sort] for dat, sort in zip(zbin, sorting)])
+        yerr_lower = np.concatenate([dat[5][sort] for dat, sort in zip(zbin, sorting)])
+        dMUV = np.concatenate([dat[6][sort] for dat, sort in zip(zbin, sorting)])
         reduced_data.append([z, dz, MUVs, phis, yerr_upper, yerr_lower, dMUV])
 
     return reduced_data
