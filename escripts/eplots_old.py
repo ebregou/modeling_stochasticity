@@ -84,37 +84,41 @@ def percent_diff_plot(x, y0, y1, labels, other_data = None):
 
     return fig, ax
 
-def plot_corner(samples, labels, true_vals = None, title = ''):
+def plot_corner(samples, UVLF, excluded_params = [], true_vals = None, title = ''):
     """
     Plot a corner plot, adding true values if any are given.
     Inputs:
         samples [array]: samples from the MCMC chain
-        labels [list of strs]: label for each sample
+        UVLF: UVLF object
+        excluded_params [list of strings]: any parameters that you don't want plotted in the corner plot
         true_vals [1darray]: optional true values for each parameter. Don't include true values for parameters in excluded_params
         title [str]: plot title
     Returns:
         corner_plot [matplotlib figure]: corner plot showing the values and covariances of each parameter, and, optionally, their true values
     """
+    plot_labels = np.array([param['label'] for name, param in UVLF.param_data.items() if param['fit'] is True])
+              
+    # Keep only the desired columns (so that we only plot parameters not in excluded_params)
+    names = [outer_key for outer_key, inner_dict in UVLF.param_data.items() if inner_dict.get('fit', True)]
+    keep = [i for i, name in enumerate(names) if name not in excluded_params]
+    cut_samples = np.array([[row[i] for i in keep] for row in samples])
     
     if true_vals is None:
-        corner_plot = corner.corner(samples, labels=labels, color = red) 
+        corner_plot = corner.corner(cut_samples, labels=plot_labels[keep], color = red) 
     else:
-        corner_plot = corner.corner(samples, labels=labels, color = red, truths = true_vals, truth_color= turquoise)
+        corner_plot = corner.corner(cut_samples, labels=plot_labels[keep], color = red, truths = true_vals, truth_color= turquoise)
 
     corner_plot.suptitle(title, y = 1.02)
         
     return corner_plot
 
-def plot_evolving_UVLF_fit(my_UVLF, z_plot = None, plot_samples = True, nsamples = 1, comparison_fits = [], comparison_labels = [], 
-                           title = 'UVLF data vs. MCMC fit'):
+def plot_evolving_UVLF_fit(my_UVLF, z_plot = None, nsamples = 100, truths = None, title = 'UVLF data vs. MCMC fit'):
     """
+    samples [ndarray]: Results from MCMC
     my_UVLF: eMCMC UVLF object
-    z_plot [list of floats]: redshifts to plot, or leave as None if you want to plot all of them
-    plot_samples [bool]: whether or not to plot the best fit and samples from my_UVLF. If False, only comparison_fits parameter values
-                         will be plotted.
-    nsamples [int]: number of samples from the MCMC chain you want to appear in addition to the best fit
-    comparison_fits [list of lists]: lists of parameter values that will be used to create comparison UVLFs
-    comparison_labels [list of strs]: labels that correspond to the parameter values in comparison_fits, for the legend
+    z_plot [list of floats]: redshifts to plot, or leave as None if you want to plot all of them.
+    nsamples [int]: number of samples you want to appear alongside the best fit on the plot
+    truths [ndarray]: true values of parameters, if they exist
     title [str]: overarching title of the plot
     """
     if z_plot is None: # Plot every redshift if none are specified.
@@ -130,8 +134,7 @@ def plot_evolving_UVLF_fit(my_UVLF, z_plot = None, plot_samples = True, nsamples
 
     # Get samples & best fit
     samples, best_fit, _ = my_UVLF.get_fit()
-    chi2 = -2 * my_UVLF.log_like(best_fit)
-    chi2_comparison = [-2*my_UVLF.log_like(fit) for fit in comparison_fits]
+    chi2 = -2* my_UVLF.log_like(best_fit)
 
     # Set the same y limits for all the plots
     ylo, yhi = np.log10(min([min(dat[3]) for dat in my_UVLF.data]))-0.25, np.log10(max([max(dat[3]) for dat in my_UVLF.data]))+0.25 
@@ -150,24 +153,21 @@ def plot_evolving_UVLF_fit(my_UVLF, z_plot = None, plot_samples = True, nsamples
             print(f'Skipping $z={zdat}$')
             continue
 
-        if plot_samples:
-            # Plot each sample from the chain
-            for ind in inds: 
-                sample = samples[ind]
-                ax[i].plot(plot_xdat, np.log10(my_UVLF.UVLF_wrapper(zdat,zerr,plot_xdat, plot_xerr,sample)), alpha=nsamples/3500, color = red, 
-                           linestyle = '-', zorder = 0)
+        # Plot each sample from the chain
+        for ind in inds:
+            sample = samples[ind]
+            ax[i].plot(plot_xdat, np.log10(my_UVLF.UVLF_wrapper(zdat,zerr,plot_xdat, plot_xerr,sample)), alpha=nsamples/3500, color = red, 
+                       linestyle = '-', zorder = 0)
     
-            # Plot best fit
-                chi2 = -2* my_UVLF.log_like(best_fit)
-                ax[i].plot(plot_xdat, np.log10(my_UVLF.UVLF_wrapper(zdat, zerr, plot_xdat, plot_xerr, best_fit)), color = red, linestyle = '-', 
-                                               zorder = 0, label = f'best fit, $\chi^2 = {chi2:.0f}$')
-        # Plot comparison fits
-        for fit, chi2_fit, label, color, ls in zip(comparison_fits, chi2_comparison, comparison_labels, [turquoise, yellow, orange, green], 
-                                        ['solid', 'dashdot', 'dashed', 'dotted']):
-            ax[i].plot(plot_xdat, np.log10(my_UVLF.UVLF_wrapper(zdat,zerr,plot_xdat,plot_xerr, fit)), color = color, 
-                       label = f'{label}, $\chi^2 = {chi2_fit:.0f}$', linestyle = ls, zorder = 1)
-
-        # Plot data
+        
+        if truths is not None: # Plot the true curve if one is known. Otherwise, plot the best fit
+            ax[i].plot(plot_xdat, np.log10(my_UVLF.UVLF_wrapper(zdat,zerr,plot_xdat,plot_xerr, truths)), color = red, label = 'true UVLF', 
+                       linestyle = '-', zorder = 1)
+        else:
+            ax[i].plot(plot_xdat, np.log10(my_UVLF.UVLF_wrapper(zdat,zerr,plot_xdat,plot_xerr,best_fit)), color = red, 
+                       label = f'best fit (average)', linestyle = '-', zorder = 1)
+        
+        ax[i].plot([0], [0], color = red, alpha = 0.5, label = 'sampled fits', linestyle = '-') # Create the label for the samples
         for dat, fmt in zip(zbin, ['o', 'v', 's']):
             _, _, xdat, ydat, yerr_upper, yerr_lower, xerr = eMCMC.decompose_data(dat)
             yerr_lower, yerr_upper = estats.calc_log_error(ydat, yerr_lower), estats.calc_log_error(ydat, yerr_upper)
@@ -192,6 +192,67 @@ def plot_evolving_UVLF_fit(my_UVLF, z_plot = None, plot_samples = True, nsamples
         ax[-1].legend(bbox_to_anchor= (1, 1))
     else:
         ax[-1].legend()
+        # Add best fit parameter text (only if there's more than one redshift bin)
+        ax[-1].text(1.02, .95, f'Best fit ($\chi^2 = {round(chi2, 0)}$):', transform=ax[-1].transAxes, va='top', fontsize = 10)
+        for i, (label, val) in enumerate(zip([p['label'] for p in list(my_UVLF.param_data.values()) if p.get('fit', True)], best_fit)): 
+            ax[-1].text(1.02, 0.95-(0.075*(i+1)), f'{label} : {round(val, 2)}', transform=ax[-1].transAxes, va='top', fontsize = 10)
+
+    return fig
+
+def compare_fits(file_names, data_labels, best_fits, fit_labels, title = 'Fit comparison'):
+    """
+    Purpose: compare different best fits against each other
+    Inputs:
+        file_names [list of strs]: list of files where data is read from
+        data_labels [list of strs]: legend keys for different datasets
+        best_fits [list of lists]: list of best fit parameter values for different fits
+        fit_labels [list of strings]: labels for these different fits (for the plot)
+        title [str]: overall title for the plot
+    Outputs: Comparison figure
+    """
+    my_UVLF = eMCMC.UVLF(file_names, data_labels)
+    data = my_UVLF.sorted_data
+    # Figure out how many subplots to make
+    nz = len(data)
+    fig, ax = plt.subplots(1, nz, sharey = True)
+    if nz == 1:
+        ax = [ax] # Make iterable
+    fig.set_size_inches(3.5*nz, 3)
+    plt.subplots_adjust(wspace = 0.1)
+
+    # Set the same y limits for all the plots
+    ylo, yhi = np.log10(min([min(dat[3]) for dat in my_UVLF.data]))-0.25, np.log10(max([max(dat[3]) for dat in my_UVLF.data]))+0.25
+
+    plot_xdat, plot_xerr = my_UVLF.data[0][2], my_UVLF.data[0][5], # Use the lowest redshift MUV centers & bins to calculate the theoretical
+                                                                # UVLF (this will make it the smoothest)
+
+    for i, zbin in enumerate(data):
+        zdat, zerr = zbin[0][0], zbin[0][1]
+        
+
+        # Plot best fit:
+        for sample, label, color, ls in zip(best_fits, fit_labels, [red, turquoise, yellow, orange], 
+                                            ['solid', 'dashdot', 'dashed', 'dotted']): 
+            chi2 = -2*my_UVLF.log_like(sample)
+            ax[i].plot(plot_xdat, np.log10(my_UVLF.UVLF_wrapper(zdat,zerr,plot_xdat,plot_xerr,sample)), 
+                       label = f'{label}, $\chi^2 = {chi2:.0f}$', zorder = 1, color = color, linestyle = ls)
+
+        for dat, fmt in zip(zbin, ['o', 'v', 's']):
+            _, _, xdat, ydat, yerr_upper, yerr_lower, xerr = eMCMC.decompose_data(dat)
+            yerr_lower, yerr_upper = estats.calc_log_error(ydat, yerr_lower), estats.calc_log_error(ydat, yerr_upper)
+            ax[i].errorbar(xdat, np.log10(ydat), [yerr_lower, yerr_lower], fmt = fmt, capsize=0, markersize = 9, label = dat[7], 
+                           markeredgecolor = 'none', markerfacecolor = navy, ecolor = navy)
+        
+        ax[i].invert_xaxis()
+        ax[i].set_ylim(ylo, yhi)
+        ax[i].set_xlim(np.max(plot_xdat)+0.25, np.min(plot_xdat)-0.25)
+        ax[i].set_title(f'$z \simeq {round(zdat,1)}$')
+        ax[i].xaxis.set_major_locator(ticker.MaxNLocator(integer=True)) # Make it so that only integers can be used in the  
+                                                                                       # axis labels
+    ax[0].set_ylabel(r'$\log_{10}(\phi_{\rm{UV}}$ [$\rm{mag}^{-1} \rm{Mpc}^{-3}$])')
+    fig.text(.5, -0.05, r'$M_{\rm{UV}}$ [mag]', ha = 'center')
+    fig.text(.5, 1.1, title, ha = 'center', fontsize = 20)
+    leg = plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left', borderaxespad=0.)
 
     return fig
 

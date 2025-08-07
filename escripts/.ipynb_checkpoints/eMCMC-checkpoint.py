@@ -1,34 +1,39 @@
 # Purpose: interface with Zeus to run MCMC on models of the UVLF with time-evolving sigma_UV
-# Author: Emily Bregou, Julian Muñoz
+# Authors: Emily Bregou, Julian Muñoz
 
 # Standard packages
 import numpy as np
 import emcee
 import pandas as pd
+import zeus21
 
 # Local packages
-import zeus21
+from escripts import eplots
+from escripts import edata
 
 # MCMC class
 class UVLF():
-    def __init__(self, file_names, data_labels = None, param_data = None):
-        self.sorted_data = read_data(file_names, data_labels)
-        self.data = reduce_data(self.sorted_data)
+    def __init__(self, sorted_data, param_data = None):
+        self.sorted_data = sorted_data # This isn't used in the MCMC at all but it's useful to have for plotting results.
+        self.data = edata.reduce(self.sorted_data)
         if type(self.data[0]) is not list: # Make sure the format is correct for the rest of the script if only one redshift is input
             self.data = [self.data] 
         self.zs = [dat[0] for dat in self.data]
         if param_data is None:
-            param_data = get_default_dict(table=False)
+            param_data = get_default_df()
         self.UserParams = zeus21.User_Parameters()
         self.param_data = param_data
-        self.lowers = [p['lower'] for p in list(self.param_data.values()) if p.get('fit', True)]
-        self.uppers = [p['upper'] for p in list(self.param_data.values()) if p.get('fit', True)]
+        self.lowers = self.param_data['lower'].to_numpy()
+        self.uppers = self.param_data['upper'].to_numpy()
         self.ndim = len(self.lowers)
         self.nwalkers = 2*self.ndim # Walkers = twice the number of parameters
 
         # Get cosmological parameters, construct HMF from Zeus
         CosmoParams_input = zeus21.Cosmo_Parameters_Input(zmin_CLASS=0.0)
         self.CosmoParams,ClassyCosmo, CorrFclass, self.HMFintclass =  zeus21.cosmo_wrapper(self.UserParams, CosmoParams_input)
+
+        # Get baseline astronomical parameters
+        self.Astro_Parameters = zeus21.Astro_Parameters(self.UserParams, self.CosmoParams)
 
         # Create MCMC sampler
         self.sampler = emcee.EnsembleSampler(self.nwalkers, self.ndim, self.log_prob) 
@@ -42,7 +47,9 @@ class UVLF():
         step_size = [(upper-lower)/100 for upper, lower in zip(self.uppers, self.lowers)]
 
         # Start each walker at a different place
-        params1 = [p['start'] for p in list(self.param_data.values()) if p.get('fit', True)]
+        params1 = self.param_data['start'].to_numpy(dtype=np.float64)[np.where(self.param_data['fit'].to_numpy())[0]] # For some reason you need 
+                                                                                                                    # to specify dtype or it
+                                                                                                                # doesn't work
         p0 = params1 + step_size * (np.random.randn(self.nwalkers, self.ndim))
 
         # Run a short MCMC to spread the walkers out a bit
@@ -89,8 +96,6 @@ class UVLF():
         Returns:
             loglike_curr [float]: log likelihood of the data given the model parameters
         """
-        
-        #now bin it appropriately at each z -- data part
         loglike_curr = 0.0
 
         # self.data has all the z & UVLF data
@@ -102,7 +107,7 @@ class UVLF():
         for dataarrayz in data: # Add the log likelihoods together for each redshift. The log likelihood is just a sum over all the points
             # anyways, so this makes sense
             
-            zdat, zerr, xdat, ydat, yerr_upper, yerr_lower, xerr = decompose_data(dataarrayz)
+            zdat, zerr, xdat, ydat, yerr_upper, yerr_lower, xerr = edata.decompose(dataarrayz)
     
             uvlftheory = self.UVLF_wrapper(zdat,zerr,xdat,xerr, paramvector)
             
@@ -127,7 +132,6 @@ class UVLF():
         Outputs:
             PhiUV [1darray]: In units of mag^-1 Mpc^-3
         """
-
         params = self.time_evolution(paramvector, zcenter)
         astroparams = self.param_wrapper(params)
         UVLFs_std = zeus21.UVLFs.UVLF_binned(astroparams,self.CosmoParams,self.HMFintclass,zcenter,zwidth,MUVcenters,MUVwidths)
@@ -143,16 +147,17 @@ class UVLF():
         Returns:
             [log10epsstar, log10Mcstar, alphastar, betastar, sigmaUV]: values of these parameters that match the given redshift
         """
-        param_data = list(self.param_data.values())
-        assert len(paramvector) == len([p for p in param_data if p['fit']]), 'The length of paramvector does not match the number of parameters you want to fit'
+        param_data = [self.param_data.T[key] for key in self.param_data.T.keys()]
+        nparams = np.count_nonzero(self.param_data['fit']) # This counts everywhere the fit is set as true
+        assert len(paramvector) == nparams, 'The length of paramvector does not match the number of parameters you want to fit'
         
         # Deal with constant parameters, deal with piecewise
-        params = np.zeros(len(param_data))
+        params = np.zeros(nparams)
         j = 0 # This keeps track of how far we are into paramvector
         for i, param in enumerate(param_data): 
             if param['fit']: # If this is a fit parameter
                 value = paramvector[j] 
-                j+=1
+                j+=1 # Move to the next fit parameter
             else: # If this parameter is held constant
                 value = param['value']
 
@@ -168,12 +173,12 @@ class UVLF():
             base_idx = 2 * i
             value = params[base_idx]
             time_deriv = params[base_idx+1] # The order of the parameters are alternating base & time derivative, so this works
-            final_values.append(value+(time_deriv*(zcenter-8)))
+            final_values.append(value+(time_deriv*(zcenter-self.Astro_Parameters._zpivot)))
 
         # Apply mass dependence of sigma
         sig = final_values[-1]
         dsigdM = params[-1]
-        final_values[-1] = sig + (dsigdM*(np.log10(self.HMFintclass.Mhtab)-10))
+        final_values[-1] = sig + (dsigdM*(np.log10(self.HMFintclass.Mhtab)-self.Astro_Parameters.Mpivot))
 
         return final_values
 
@@ -188,7 +193,6 @@ class UVLF():
         alphastar, betastar, log10Mcstar, log10epsstar, sigmaUV = params
         astroparams = zeus21.Astro_Parameters(self.UserParams, self.CosmoParams, epsstar=10**log10epsstar, Mc=10**log10Mcstar,alphastar=alphastar, 
                                               betastar=betastar, sigmaUV = sigmaUV) 
-        
         return astroparams
 
     def get_fit(self, discard=400, excluded_params = []):
@@ -208,23 +212,56 @@ class UVLF():
         i = 0
         best_fit = []
         all_labels = []
+        exclude_indices = []
     
-        for name, param in self.param_data.items():
-            if name in excluded_params:
+        for index, key in enumerate(self.param_data.T.keys()):
+            if key in excluded_params:
+                exclude_indices.append(index)
                 continue
             else: 
-                if param.get('fit', True): # Get best fit value if the parameter is fit by MCMC
+                if self.param_data.T[key].fit: # Get best fit value if the parameter is fit by MCMC
                     value = best_fit_data[i]
                     i += 1
                 else: # Otherwise, take the default value
-                    value = param.get('value', None)
+                    value = self.param_data.T[key].value
             if value == 0:
                 best_fit.append(0) # Keep track if the value is exactly zero
             else:
                 best_fit.append(round(value, 2))
-            all_labels.append(param.get('label', None))
+            all_labels.append(self.param_data.T[key].label)
     
-        return samples, best_fit, all_labels
+        return np.delete(samples, exclude_indices, axis=1), best_fit, all_labels
+
+    def run_MCMC(self, Nsteps = 2000, plot_corner = False, plot_evolving = False, title = ''):
+        """
+        Run MCMC, store the chain that's created
+        Inputs:
+            Nsteps [int]: number of steps in the chain. This will be multiplied by self.ndim for the total number of samples
+            plot_corner [bool]: whether or not to make & return a corner plot showing contours for the parameter values
+            plot_evolving [bool]: whether or not to make & return a plot showing the evolving best fit & samples
+            title [str]: title for the plots
+        Outputs:
+            best_fit [1darray]: best fit parameter values (maximizing likelihood)
+            plots [list of figs]: corner and/or evolving UVLF plot, depending on inputs
+        """
+        # Get ICs for running MCMC
+        ICs = self.generate_ICs()
+
+        # Run MCMC
+        _ = self.sampler.run_mcmc(ICs, Nsteps) 
+
+        # Make plots
+        plots = []
+        samples, best_fit, labels = self.get_fit()
+        if plot_corner:
+            corner_fig = eplots.plot_corner(samples, self, title = title)
+            plots.append(corner_fig)
+        if plot_evolving:
+            evolving_fig = eplots.plot_evolving_UVLF_fit(self)
+            plots.append(evolving_fig)
+
+        return best_fit, samples, plots
+        
 
 def build_param_data(custom_params):
     """
@@ -237,20 +274,23 @@ def build_param_data(custom_params):
     """
     
     # Master dictionary with defaults for each parameter label
-    default_values = get_default_dict(table = False)
+    default_values = get_default_df()
 
     if custom_params is None:
         return default_values
         
-    for label in custom_params:
-        if label not in default_values:
+    for label in list(custom_params.keys()): # Label refers to things like 'alpha', 'dsigdz'
+        if label not in default_values.index:
             raise ValueError(f"No default values found for label: {label}")
+        for sublabel in list(custom_params[label]): # Sublabel refers to things like 'fit' or 'lower'
+            if sublabel not in default_values.keys():
+                raise ValueError(f"No default values found for sublabel: {parameter}")
+            default_values.loc[label, sublabel] = custom_params[label][sublabel]
 
-        default_values[label].update(custom_params[label])
 
     return default_values
 
-def get_default_dict(table = True):
+def get_default_df():
     """
     All supported parameters are included in this nested dictionary, including the following keys:
     'fit': when True, this will be fit with MCMC. When False, this value will be held fixed at the value provided under the 'value' key.
@@ -262,8 +302,6 @@ def get_default_dict(table = True):
     Note that you may assign the 'value' of base parameters (alpha, beta, logMc, loge, sig) to be arrays. The code will interpret these as
     piecewise values across redshift (so the length of the array must match the number of redshifts you have data to fit for). This will only work
     if 'fit' is labeled False; there is currently not support for using MCMC to fit parameters in a piecewise fashion. 
-
-    If table is true, it will return a readable pandas dataframe. If not, it will return as a dictionary.
     """
     default_values = {
         'alpha':   {'fit': True, 'value': 0.6, 'start': 0.6, 'lower': 0, 'upper': 4, 'label': r"$\alpha$"},
@@ -280,10 +318,7 @@ def get_default_dict(table = True):
                     'label': r'$d\sigma_{\rm{UV}}/d\log(M_{h})$'}
     }
 
-    if table:
-        return pd.DataFrame(default_values).T
-    else:
-        return default_values
+    return pd.DataFrame(default_values).T
 
 def make_table(best_fits, param_labels, fit_labels):
     """
@@ -295,90 +330,7 @@ def make_table(best_fits, param_labels, fit_labels):
     Outputs:
         dataframe table with labeled parameters for comparison
     """
-    for i in range(len(best_fits)):
-        best_fits[i] = ['-' if item == 0 else item for item in best_fits[i]]
     df = pd.DataFrame(best_fits, columns = param_labels)
     df.index = fit_labels
     
     return df.T
-
-def decompose_data(data, MINRELERROR = 0.2):
-    """
-    Decompose data corresponding to a single redshift into its components, ensure that the error bars are reasonable
-    Inputs:
-        data [Nx6 array]: data corresponding to a single redshift
-        MINRELERROR [float]: minimum relative error (prevents the error bars from being unrealistically small)
-    Outputs:
-        zdat, zerr, xdat, ydat, modified yerr_upper, yerr_lower, xerr
-    """
-    zdat = data[0] # redshift
-    zerr = data[1] # delta redshift (redshift bin)
-    xdat = data[2] # MUV
-    ydat = data[3]# phiUV 
-    yerr_upper = data[4]
-    yerr_lower = data[5]
-    xerr = data[6] # error on MUV (MUV bins)
-
-    yerr_upper, yerr_lower = np.fmax(yerr_upper, ydat * MINRELERROR), np.fmax(yerr_lower, ydat*MINRELERROR) # Make sure error bars aren't any
-                                                                                                            # smaller than the relative error
-
-    return zdat, zerr, xdat, ydat, yerr_upper, yerr_lower, xerr
-
-def read_data(file_names, data_labels = None): 
-    """
-    Read in data and organize it by dataset and redshift. We want the data sorted by dataset for plotting purposes (so we can assign credit to the
-    studies that observed different things). 
-    Inputs:
-        file_names [list of strs]: file names to read data from
-        data_labels [list of strs]: names of datasets, for plotting purposes
-    Returns:
-        data, organized by dataset and redshift
-    """
-    if data_labels is None:
-        data_labels = np.full('', len(file_names))
-        
-    all_data = []
-    for fn in file_names:
-        all_data.append(np.loadtxt(fn, skiprows=2, unpack = True))
-                        
-    redshifts = np.unique(np.concatenate([data[0] for data in all_data])) # Get a list of all redshifts that exist within the files
-    dredshifts = np.ones_like(redshifts)/2. #approximate, there are true window functions to use
-
-    # Organize data by redshift
-    sorted_data = []
-    #format is     zdat = data[0] zerr = data[1] xdat = data[2],  ydat = data[3]  yerr_upper = data[4]  yerr_lower = data [5] xerr = data[6] 
-    
-    for iz,z in enumerate(redshifts):
-        z_separated = []
-        for data, label in zip(all_data, data_labels):
-            zlistindex = data[0] == 1.0*z
-            datarr = [z,dredshifts[iz], data[1][zlistindex], data[3][zlistindex], data[4][zlistindex], np.abs(data[5][zlistindex]), 
-                      #Use absolute value because the lower error bar is given as negative (centered on ydat)
-                      data[2][zlistindex], label]
-            z_separated.append(datarr)
-        sorted_data.append(z_separated)
-
-    return sorted_data
-
-def reduce_data(sorted_data): 
-    """
-    Remove the sorting by dataset and just sort by redshift. Make sure the data go in order of MUV. The MCMC doesn't care where the data comes
-    from, so this is for that.
-    Inputs:
-        sorted_data [list]: from read_data, data sorted by dataset and redshift.
-    Returns:
-        reduced_data [list]: data sorted by just redshift, ordered by MUV
-    """
-    reduced_data = []
-    for zbin in sorted_data:
-        z = zbin[0][0]
-        dz = zbin[0][1]
-        sorting = [np.argsort(dat[2]) for dat in zbin] # Make sure the data is ordered by MUV
-        MUVs = np.concatenate([dat[2][sort] for dat, sort in zip(zbin, sorting)])
-        phis = np.concatenate([dat[3][sort] for dat, sort in zip(zbin, sorting)])
-        yerr_upper = np.concatenate([dat[4][sort] for dat, sort in zip(zbin, sorting)])
-        yerr_lower = np.concatenate([dat[5][sort] for dat, sort in zip(zbin, sorting)])
-        dMUV = np.concatenate([dat[6][sort] for dat, sort in zip(zbin, sorting)])
-        reduced_data.append([z, dz, MUVs, phis, yerr_upper, yerr_lower, dMUV])
-
-    return reduced_data
