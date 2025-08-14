@@ -15,6 +15,7 @@ import math
 # Local packages
 from escripts import estats
 from escripts import eMCMC
+from escripts import edata
 
 color_cycler = mpl.rcParams['axes.prop_cycle']
 colors = [c['color'] for c in color_cycler]
@@ -129,7 +130,7 @@ def plot_evolving_UVLF_fit(my_UVLF, z_plot = None, plot_samples = True, nsamples
     plt.subplots_adjust(wspace = 0.1)
 
     # Get samples & best fit
-    samples, best_fit, _ = my_UVLF.get_fit()
+    samples, best_fit, _ = my_UVLF.get_fit(exclude_unfit = True)
     chi2 = -2 * my_UVLF.log_like(best_fit)
     chi2_comparison = [-2*my_UVLF.log_like(fit) for fit in comparison_fits]
 
@@ -169,7 +170,7 @@ def plot_evolving_UVLF_fit(my_UVLF, z_plot = None, plot_samples = True, nsamples
 
         # Plot data
         for dat, fmt in zip(zbin, ['o', 'v', 's']):
-            _, _, xdat, ydat, yerr_upper, yerr_lower, xerr = eMCMC.decompose_data(dat)
+            _, _, xdat, ydat, yerr_upper, yerr_lower, xerr = edata.decompose(dat)
             yerr_lower, yerr_upper = estats.calc_log_error(ydat, yerr_lower), estats.calc_log_error(ydat, yerr_upper)
             ax[i].errorbar(xdat, np.log10(ydat), [yerr_lower, yerr_upper], fmt = fmt, capsize=0, markersize = 9, label = dat[7], 
                            markeredgecolor = 'none', markerfacecolor = navy, ecolor = navy)
@@ -253,4 +254,3 @@ class HandlerStackedLine(HandlerLine2D): # Inherits from the HandlerLine2D class
         # Override the typical create_artists function in HandlerLine2D; use this one instead
         return [Line2D([xdescent, xdescent + width], [ydescent + (i-0.3) * 6] * 2, color=self.colors[i], transform=trans)
                 for i in range(len(self.colors))]
-

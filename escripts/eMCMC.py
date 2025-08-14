@@ -25,7 +25,7 @@ class UVLF():
         self.param_data = param_data
         self.lowers = self.param_data['lower'].to_numpy()
         self.uppers = self.param_data['upper'].to_numpy()
-        self.ndim = len(self.lowers)
+        self.ndim = np.sum(self.param_data['fit']) # Count the number of parameters to fit
         self.nwalkers = 2*self.ndim # Walkers = twice the number of parameters
 
         # Get cosmological parameters, construct HMF from Zeus
@@ -44,12 +44,13 @@ class UVLF():
         Returns: 
             ICs [array]: ICs to run MCMC with
         """
-        step_size = [(upper-lower)/100 for upper, lower in zip(self.uppers, self.lowers)]
+        fit_indices = np.where(self.param_data['fit'])[0]
+        step_size = [(upper-lower)/100 for upper, lower in zip(self.uppers[fit_indices], self.lowers[fit_indices])]
 
         # Start each walker at a different place
-        params1 = self.param_data['start'].to_numpy(dtype=np.float64)[np.where(self.param_data['fit'].to_numpy())[0]] # For some reason you need 
-                                                                                                                    # to specify dtype or it
-                                                                                                                # doesn't work
+        params1 = self.param_data['start'].to_numpy(dtype=np.float64)[fit_indices] 
+        # For some reason you need to specify dtype or it doesn't work
+        
         p0 = params1 + step_size * (np.random.randn(self.nwalkers, self.ndim))
 
         # Run a short MCMC to spread the walkers out a bit
@@ -70,7 +71,6 @@ class UVLF():
             lpost=self.log_like(paramvector)
         else:
             lpost = 0.0 #doesn't matter, added to -inf
-        #print(paramvector)
         return lprior + lpost
 
     
@@ -117,7 +117,7 @@ class UVLF():
 
             # this formula is just proportional to the natural log of a Gaussian
             loglike_curr += -np.sum((ydat - uvlftheory)**2/(2.0 * yerr_asymmetrical**2))
-        
+
         return loglike_curr
 
     def UVLF_wrapper(self, zcenter, zwidth, MUVcenters, MUVwidths, paramvector):
@@ -135,7 +135,6 @@ class UVLF():
         params = self.time_evolution(paramvector, zcenter)
         astroparams = self.param_wrapper(params)
         UVLFs_std = zeus21.UVLFs.UVLF_binned(astroparams,self.CosmoParams,self.HMFintclass,zcenter,zwidth,MUVcenters,MUVwidths)
-        
         return UVLFs_std
 
     def time_evolution(self, paramvector, zcenter):
@@ -147,40 +146,39 @@ class UVLF():
         Returns:
             [log10epsstar, log10Mcstar, alphastar, betastar, sigmaUV]: values of these parameters that match the given redshift
         """
-        param_data = [self.param_data.T[key] for key in self.param_data.T.keys()]
-        nparams = np.count_nonzero(self.param_data['fit']) # This counts everywhere the fit is set as true
-        assert len(paramvector) == nparams, 'The length of paramvector does not match the number of parameters you want to fit'
-        
-        # Deal with constant parameters, deal with piecewise
-        params = np.zeros(nparams)
-        j = 0 # This keeps track of how far we are into paramvector
-        for i, param in enumerate(param_data): 
-            if param['fit']: # If this is a fit parameter
-                value = paramvector[j] 
-                j+=1 # Move to the next fit parameter
-            else: # If this parameter is held constant
-                value = param['value']
+        fit_ids = np.where(self.param_data['fit'])[0] # Assign these slots in full_paramvector to be whatever the MCMC returned
+        nonfit_ids = np.where(self.param_data['fit'] == False)[0] # Assign these slots in full_paramvector to be default values
 
-            if not np.isscalar(value): # Piecewise, get the value that corresponds to that redshift
-                index = np.where(self.zs == zcenter)[0][0]
-                value = value[index]
-                
-            params[i] = value
+        # Deal with piecewise parameters if necessary
+        if np.isscalar(all(self.param_data['value'][nonfit_ids])):
+            insert_vals = self.param_data['value'][nonfit_ids]
+        else:
+            insert_vals = np.zeros(nonfit_ids) 
+            for i, val in enumerate(self.param_data['value'][nonfit_ids]):
+                if np.isscalar(val):
+                    insert_vals[i] = val
+                else:
+                    zindex = np.where(self.zs == zcenter)[0][0]
+                    insert_vals[i] = val[zindex]
+
+        full_paramvector =  np.zeros(len(self.param_data['label'])) # All parameters accounted for
+        full_paramvector[nonfit_ids] = insert_vals
+        full_paramvector[fit_ids] = paramvector
 
         # Apply time evolution
-        final_values = []
-        for i in range(5): # This is alpha*, beta*, M_h, eps*, sigmaUV, the 5 base parameters
-            base_idx = 2 * i
-            value = params[base_idx]
-            time_deriv = params[base_idx+1] # The order of the parameters are alternating base & time derivative, so this works
-            final_values.append(value+(time_deriv*(zcenter-self.Astro_Parameters._zpivot)))
+        base_idx = np.arange(0, 10, 2) # The order of the parameters are alternating base & time derivative
+        param_base = full_paramvector[base_idx]
+        time_derivs = full_paramvector[base_idx + 1]
+        param_values = param_base + (time_derivs*(zcenter-self.Astro_Parameters._zpivot))
 
         # Apply mass dependence of sigma
-        sig = final_values[-1]
-        dsigdM = params[-1]
-        final_values[-1] = sig + (dsigdM*(np.log10(self.HMFintclass.Mhtab)-self.Astro_Parameters.Mpivot))
+        sig = param_values[-1]
+        dsigdM = full_paramvector[-1]
+        param_values = list(param_values) # Need to convert to a list such that the last element can be an array
+        sig_array = sig + (dsigdM*(np.log10(self.HMFintclass.Mhtab)-self.Astro_Parameters.Mpivot))
+        param_values[-1] = sig_array.clip(min=0.2) # Set the minimum value of sigma to be 0.2
 
-        return final_values
+        return param_values
 
     def param_wrapper(self, params):
         """
@@ -195,17 +193,19 @@ class UVLF():
                                               betastar=betastar, sigmaUV = sigmaUV) 
         return astroparams
 
-    def get_fit(self, discard=400, excluded_params = []):
+    def get_fit(self, discard=400, exclude_unfit = False, excluded_params = []):
         """
         Get samples and best fit values from MCMC samples (or, if the parameter is not fit, return the default value).
         Inputs:
             discard [int]: number of steps in the chain to discard
+            exclude_unfit [bool]: whether or not to exclude parameters that are set by default (and not by the MCMC chain) 
             excluded_params [list]: any parameters you don't want to return
         Outputs:
             samples [Ndarray]: MCMC chain samples
             best_fit [list]: ordered list of best fit parameters (or default parameters where applicable)
             all_labels [list]: TeX representation of parameters, used with make_table()
         """
+        
         samples = self.sampler.get_chain(discard = discard, flat=True)
         best_fit_data = samples[np.argmax(self.sampler.get_log_prob(discard=discard, flat=True))] # Get highest probability sample
 
@@ -223,11 +223,12 @@ class UVLF():
                     value = best_fit_data[i]
                     i += 1
                 else: # Otherwise, take the default value
-                    value = self.param_data.T[key].value
-            if value == 0:
-                best_fit.append(0) # Keep track if the value is exactly zero
-            else:
-                best_fit.append(round(value, 2))
+                    if exclude_unfit:
+                        continue
+                    else:
+                        value = self.param_data.T[key].value
+            
+            best_fit.append(round(value, 2))
             all_labels.append(self.param_data.T[key].label)
     
         return np.delete(samples, exclude_indices, axis=1), best_fit, all_labels
