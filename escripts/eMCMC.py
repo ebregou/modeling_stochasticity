@@ -216,7 +216,8 @@ class UVLF():
     
         for index, key in enumerate(self.param_data.T.keys()):
             if key in excluded_params:
-                exclude_indices.append(index)
+                if index not in np.where(self.param_data['fit'] == False)[0]: # Make sure you don't double count if the parameter wasn't fit anyways
+                    exclude_indices.append(index)
                 continue
             else: 
                 if self.param_data.T[key].fit: # Get best fit value if the parameter is fit by MCMC
