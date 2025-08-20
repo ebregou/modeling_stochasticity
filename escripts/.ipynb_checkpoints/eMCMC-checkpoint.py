@@ -27,6 +27,9 @@ class UVLF():
         self.uppers = self.param_data['upper'].to_numpy()
         self.ndim = np.sum(self.param_data['fit']) # Count the number of parameters to fit
         self.nwalkers = 2*self.ndim # Walkers = twice the number of parameters
+        self.fit = np.where(self.param_data['fit'])[0]
+        self.notfit = np.where(self.param_data['fit'] == False)[0]
+        self.minsig = 0.4 # Minimum value sigma can take (in case of time evolving / halo mass evolving sigma)
 
         # Get cosmological parameters, construct HMF from Zeus
         CosmoParams_input = zeus21.Cosmo_Parameters_Input(zmin_CLASS=0.0)
@@ -44,11 +47,10 @@ class UVLF():
         Returns: 
             ICs [array]: ICs to run MCMC with
         """
-        fit_indices = np.where(self.param_data['fit'])[0]
-        step_size = [(upper-lower)/100 for upper, lower in zip(self.uppers[fit_indices], self.lowers[fit_indices])]
+        step_size = [(upper-lower)/100 for upper, lower in zip(self.uppers[self.fit], self.lowers[self.fit])]
 
         # Start each walker at a different place
-        params1 = self.param_data['start'].to_numpy(dtype=np.float64)[fit_indices] 
+        params1 = self.param_data['start'].to_numpy(dtype=np.float64)[self.fit] 
         # For some reason you need to specify dtype or it doesn't work
         
         p0 = params1 + step_size * (np.random.randn(self.nwalkers, self.ndim))
@@ -72,8 +74,7 @@ class UVLF():
         else:
             lpost = 0.0 #doesn't matter, added to -inf
         return lprior + lpost
-
-    
+ 
     def log_prior(self, paramvector):
         """
         Calculate the log prior for a flat prior: 0 if within range; negative infinity if outside
@@ -82,7 +83,7 @@ class UVLF():
         Returns:
             prior [float]: (0 if within range; negative infinity if outside)
         """
-        if all(lower < t < upper for t, lower, upper in zip(paramvector, self.lowers, self.uppers)):
+        if all(lower < t < upper for t, lower, upper in zip(paramvector, self.lowers[self.fit], self.uppers[self.fit])):
             return 0.0  # log(1)
         return -np.inf  # log(0)
         
@@ -146,15 +147,13 @@ class UVLF():
         Returns:
             [log10epsstar, log10Mcstar, alphastar, betastar, sigmaUV]: values of these parameters that match the given redshift
         """
-        fit_ids = np.where(self.param_data['fit'])[0] # Assign these slots in full_paramvector to be whatever the MCMC returned
-        nonfit_ids = np.where(self.param_data['fit'] == False)[0] # Assign these slots in full_paramvector to be default values
 
         # Deal with piecewise parameters if necessary
-        if np.isscalar(all(self.param_data['value'][nonfit_ids])):
-            insert_vals = self.param_data['value'][nonfit_ids]
+        if np.isscalar(all(self.param_data['value'][self.notfit])):
+            insert_vals = self.param_data['value'][self.notfit]
         else:
-            insert_vals = np.zeros(nonfit_ids) 
-            for i, val in enumerate(self.param_data['value'][nonfit_ids]):
+            insert_vals = np.zeros(self.notfit) 
+            for i, val in enumerate(self.param_data['value'][self.notfit]):
                 if np.isscalar(val):
                     insert_vals[i] = val
                 else:
@@ -162,8 +161,8 @@ class UVLF():
                     insert_vals[i] = val[zindex]
 
         full_paramvector =  np.zeros(len(self.param_data['label'])) # All parameters accounted for
-        full_paramvector[nonfit_ids] = insert_vals
-        full_paramvector[fit_ids] = paramvector
+        full_paramvector[self.notfit] = insert_vals
+        full_paramvector[self.fit] = paramvector
 
         # Apply time evolution
         base_idx = np.arange(0, 10, 2) # The order of the parameters are alternating base & time derivative
@@ -175,8 +174,8 @@ class UVLF():
         sig = param_values[-1]
         dsigdM = full_paramvector[-1]
         param_values = list(param_values) # Need to convert to a list such that the last element can be an array
-        sig_array = sig + (dsigdM*(np.log10(self.HMFintclass.Mhtab)-self.Astro_Parameters.Mpivot))
-        param_values[-1] = sig_array.clip(min=0.2) # Set the minimum value of sigma to be 0.2
+        sig_array = sig + (dsigdM*(np.log10(self.HMFintclass.Mhtab)-12)) #-self.Astro_Parameters.Mpivot))
+        param_values[-1] = sig_array.clip(min=self.minsig) # Set the minimum value of sigma
 
         return param_values
 
@@ -216,7 +215,7 @@ class UVLF():
     
         for index, key in enumerate(self.param_data.T.keys()):
             if key in excluded_params:
-                if index not in np.where(self.param_data['fit'] == False)[0]: # Make sure you don't double count if the parameter wasn't fit anyways
+                if index not in self.notfit: # Make sure you don't double count if the parameter wasn't fit anyways
                     exclude_indices.append(index)
                 continue
             else: 
@@ -234,35 +233,23 @@ class UVLF():
     
         return np.delete(samples, exclude_indices, axis=1), best_fit, all_labels
 
-    def run_MCMC(self, Nsteps = 2000, plot_corner = False, plot_evolving = False, title = ''):
+    def run_MCMC(self, Nsteps = 2000):
         """
         Run MCMC, store the chain that's created
         Inputs:
             Nsteps [int]: number of steps in the chain. This will be multiplied by self.ndim for the total number of samples
-            plot_corner [bool]: whether or not to make & return a corner plot showing contours for the parameter values
-            plot_evolving [bool]: whether or not to make & return a plot showing the evolving best fit & samples
-            title [str]: title for the plots
         Outputs:
-            best_fit [1darray]: best fit parameter values (maximizing likelihood)
-            plots [list of figs]: corner and/or evolving UVLF plot, depending on inputs
+            None
         """
+        self.sampler.reset()
+        
         # Get ICs for running MCMC
         ICs = self.generate_ICs()
 
         # Run MCMC
         _ = self.sampler.run_mcmc(ICs, Nsteps) 
 
-        # Make plots
-        plots = []
-        samples, best_fit, labels = self.get_fit()
-        if plot_corner:
-            corner_fig = eplots.plot_corner(samples, self, title = title)
-            plots.append(corner_fig)
-        if plot_evolving:
-            evolving_fig = eplots.plot_evolving_UVLF_fit(self)
-            plots.append(evolving_fig)
-
-        return best_fit, samples, plots
+        return
         
 
 def build_param_data(custom_params):
@@ -316,7 +303,7 @@ def get_default_df():
         'dlogedz': {'fit': True, 'value': 0, 'start': 0.01, 'lower': -0.5, 'upper': 0.5, 'label': r'$d\log(\epsilon_0)/dz$'},
         'sig':     {'fit': True, 'value': 0, 'start': 0.5, 'lower': 0, 'upper': 6, 'label': r'$\sigma_{\rm{UV}, 10}$'},
         'dsigdz':  {'fit': True, 'value': 0, 'start': 0.01, 'lower': -0.5, 'upper': 0.5, 'label': r'$d\sigma_{\rm{UV}}/dz$'},
-        'dsigdlogM':  {'fit': True, 'value': 0, 'start': 0.01, 'lower': -0.5, 'upper': 0.5, 
+        'dsigdlogM':  {'fit': True, 'value': 0, 'start': 0.01, 'lower': -1, 'upper': 1, 
                     'label': r'$d\sigma_{\rm{UV}}/d\log(M_{h})$'}
     }
 

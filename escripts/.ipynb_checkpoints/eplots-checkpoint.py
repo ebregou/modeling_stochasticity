@@ -55,7 +55,7 @@ def plot_colors():
     plt.show()
     return
 
-def percent_diff_plot(x, y0, y1, labels, other_data = None):
+def percent_diff(x, y0, y1, labels, other_data = None):
     """
     Make a plot showing 2 different datasets & their percent difference
     Inputs:
@@ -85,7 +85,7 @@ def percent_diff_plot(x, y0, y1, labels, other_data = None):
 
     return fig, ax
 
-def plot_corner(samples, labels, true_vals = None, title = ''):
+def corner(samples, labels, true_vals = None, title = ''):
     """
     Plot a corner plot, adding true values if any are given.
     Inputs:
@@ -106,20 +106,28 @@ def plot_corner(samples, labels, true_vals = None, title = ''):
         
     return corner_plot
 
-def plot_evolving_UVLF_fit(my_UVLF, z_plot = None, plot_samples = True, nsamples = 1, comparison_fits = [], comparison_labels = [], 
+def evolving_UVLF_fit(my_UVLF, z_plot = None, plot_samples = True, nsamples = 1, comparison_fits = [], comparison_labels = [], 
                            title = 'UVLF data vs. MCMC fit'):
     """
-    my_UVLF: eMCMC UVLF object
-    z_plot [list of floats]: redshifts to plot, or leave as None if you want to plot all of them
-    plot_samples [bool]: whether or not to plot the best fit and samples from my_UVLF. If False, only comparison_fits parameter values
-                         will be plotted.
-    nsamples [int]: number of samples from the MCMC chain you want to appear in addition to the best fit
-    comparison_fits [list of lists]: lists of parameter values that will be used to create comparison UVLFs
-    comparison_labels [list of strs]: labels that correspond to the parameter values in comparison_fits, for the legend
-    title [str]: overarching title of the plot
+    Plot the UVLF at different redshifts
+    Inputs:
+        my_UVLF: eMCMC UVLF object
+        z_plot [list of floats]: redshifts to plot, or leave as None if you want to plot all of them
+        plot_samples [bool]: whether or not to plot the best fit and samples from my_UVLF. If False, only comparison_fits parameter values
+                             will be plotted (so you can quickly check different fits this way).
+        nsamples [int]: number of samples from the MCMC chain you want to appear in addition to the best fit
+        comparison_fits [list of lists]: lists of parameter values that will be used to create comparison UVLFs
+        comparison_labels [list of strs]: labels that correspond to the parameter values in comparison_fits, for the legend
+        title [str]: overarching title of the plot
+    Outputs:
+        Figure showing the UVLF at different redshfits
     """
+    data_z = [dat[0] for dat in my_UVLF.data] # Get the redshifts that correspond to the input data
+    
     if z_plot is None: # Plot every redshift if none are specified.
-        z_plot = [dat[0] for dat in my_UVLF.data]
+        z_plot = data_z
+
+    assert all([z in data_z for z in z_plot]), 'The redshifts specified don\'t match the redshifts of the data'
 
     # Figure out how many subplots to make
     nz = len(z_plot)
@@ -155,13 +163,13 @@ def plot_evolving_UVLF_fit(my_UVLF, z_plot = None, plot_samples = True, nsamples
             # Plot each sample from the chain
             for ind in inds: 
                 sample = samples[ind]
-                ax[i].plot(plot_xdat, np.log10(my_UVLF.UVLF_wrapper(zdat,zerr,plot_xdat, plot_xerr,sample)), alpha=nsamples/3500, color = red, 
+                ax[i].plot(plot_xdat, np.log10(my_UVLF.UVLF_wrapper(zdat,zerr,plot_xdat, plot_xerr,sample)), alpha=6/nsamples, color = red, 
                            linestyle = '-', zorder = 0)
     
             # Plot best fit
-                chi2 = -2* my_UVLF.log_like(best_fit)
-                ax[i].plot(plot_xdat, np.log10(my_UVLF.UVLF_wrapper(zdat, zerr, plot_xdat, plot_xerr, best_fit)), color = red, linestyle = '-', 
-                                               zorder = 0, label = f'best fit, $\chi^2 = {chi2:.0f}$')
+            chi2 = -2* my_UVLF.log_like(best_fit)
+            ax[i].plot(plot_xdat, np.log10(my_UVLF.UVLF_wrapper(zdat, zerr, plot_xdat, plot_xerr, best_fit)), color = red, linestyle = '-', 
+                                           zorder = 0, label = f'best fit, $\chi^2 = {chi2:.0f}$')
         # Plot comparison fits
         for fit, chi2_fit, label, color, ls in zip(comparison_fits, chi2_comparison, comparison_labels, [turquoise, yellow, orange, green], 
                                         ['solid', 'dashdot', 'dashed', 'dotted']):

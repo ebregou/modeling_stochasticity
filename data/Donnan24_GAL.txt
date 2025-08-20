@@ -1,5 +1,5 @@
-#from https://arxiv.org/pdf/2403.03171 Table 2. All bins DeltaMUV = 0.5
-z      MUV      MUV bin width   Phi_UV[Mpc^-3 mag^-1]      +sigma_Phi_UV    -sigma_Phi_UV  [Mpc^-3 mag^-1]
+# from https://arxiv.org/pdf/2403.03171 Table 2. All bins DeltaMUV = 0.5
+# z      MUV      MUV bin width   Phi_UV[Mpc^-3 mag^-1]      +sigma_Phi_UV    -sigma_Phi_UV  [Mpc^-3 mag^-1]
 9     -20.75    0.5             0.000012                   +0.000008         -0.000005
 9     -20.25    0.5             0.000032                   +0.000013         -0.000011
 9     -19.75    0.5             0.000144                   +0.000030         -0.000028

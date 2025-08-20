@@ -42,7 +42,7 @@ def get_sorted(file_names, data_labels = None, include_zs = None):
         
     all_data = []
     for fn in file_names:
-        all_data.append(np.loadtxt(fn, skiprows=2, unpack = True))
+        all_data.append(np.loadtxt(fn, unpack = True))
                         
     redshifts = np.unique(np.concatenate([data[0] for data in all_data])) # Get a list of all redshifts that exist within the files
     if include_zs is None: # Include all redshifts if none are specified
