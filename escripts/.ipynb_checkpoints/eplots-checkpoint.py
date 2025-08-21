@@ -85,7 +85,7 @@ def percent_diff(x, y0, y1, labels, other_data = None):
 
     return fig, ax
 
-def corner(samples, labels, true_vals = None, title = ''):
+def ecorner(my_UVLF, true_vals = None, title = ''):
     """
     Plot a corner plot, adding true values if any are given.
     Inputs:
@@ -96,6 +96,7 @@ def corner(samples, labels, true_vals = None, title = ''):
     Returns:
         corner_plot [matplotlib figure]: corner plot showing the values and covariances of each parameter, and, optionally, their true values
     """
+    samples, best_fit, labels = my_UVLF.get_fit(exclude_unfit = True) # Get samples & parameter labels, excluding parameters that weren't fit
     
     if true_vals is None:
         corner_plot = corner.corner(samples, labels=labels, color = red) 
@@ -145,8 +146,9 @@ def evolving_UVLF_fit(my_UVLF, z_plot = None, plot_samples = True, nsamples = 1,
     # Set the same y limits for all the plots
     ylo, yhi = np.log10(min([min(dat[3]) for dat in my_UVLF.data]))-0.25, np.log10(max([max(dat[3]) for dat in my_UVLF.data]))+0.25 
 
-    plot_xdat, plot_xerr = my_UVLF.data[0][2], my_UVLF.data[0][5], # Use the lowest redshift MUV centers & bins to calculate the theoretical
-                                                                # UVLF (this will make it the smoothest)
+    plot_xdat, plot_xerr = my_UVLF.data[0][2], my_UVLF.data[0][5] # Use the lowest redshift MUV centers & bins as the grid to calculate the
+                                                                # theoretical UVLF on
+    
     i = 0 # Tracks which axis you're on
     for zbin in my_UVLF.sorted_data:
 
@@ -163,8 +165,8 @@ def evolving_UVLF_fit(my_UVLF, z_plot = None, plot_samples = True, nsamples = 1,
             # Plot each sample from the chain
             for ind in inds: 
                 sample = samples[ind]
-                ax[i].plot(plot_xdat, np.log10(my_UVLF.UVLF_wrapper(zdat,zerr,plot_xdat, plot_xerr,sample)), alpha=6/nsamples, color = red, 
-                           linestyle = '-', zorder = 0)
+                ax[i].plot(plot_xdat, np.log10(my_UVLF.UVLF_wrapper(zdat,zerr,plot_xdat, plot_xerr,sample)), alpha=6/max(nsamples, 6), 
+                           color = red, linestyle = '-', zorder = 0)
     
             # Plot best fit
             chi2 = -2* my_UVLF.log_like(best_fit)

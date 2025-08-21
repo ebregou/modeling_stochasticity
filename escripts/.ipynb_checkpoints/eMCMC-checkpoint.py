@@ -13,23 +13,22 @@ from escripts import edata
 
 # MCMC class
 class UVLF():
-    def __init__(self, sorted_data, param_data = None):
+    def __init__(self, sorted_data, param_data, Mhpivot = 12.0, minsig = 0):
         self.sorted_data = sorted_data # This isn't used in the MCMC at all but it's useful to have for plotting results.
         self.data = edata.reduce(self.sorted_data)
         if type(self.data[0]) is not list: # Make sure the format is correct for the rest of the script if only one redshift is input
             self.data = [self.data] 
         self.zs = [dat[0] for dat in self.data]
-        if param_data is None:
-            param_data = get_default_df()
-        self.UserParams = zeus21.User_Parameters()
         self.param_data = param_data
+        self.UserParams = zeus21.User_Parameters()
+        self.fit = np.where(self.param_data['fit'])[0]
+        self.notfit = np.where(self.param_data['fit'] == False)[0]
         self.lowers = self.param_data['lower'].to_numpy()
         self.uppers = self.param_data['upper'].to_numpy()
         self.ndim = np.sum(self.param_data['fit']) # Count the number of parameters to fit
         self.nwalkers = 2*self.ndim # Walkers = twice the number of parameters
-        self.fit = np.where(self.param_data['fit'])[0]
-        self.notfit = np.where(self.param_data['fit'] == False)[0]
-        self.minsig = 0.4 # Minimum value sigma can take (in case of time evolving / halo mass evolving sigma)
+        self.Mhpivot = Mhpivot # The central halo mass that corresponds to sigma_0
+        self.minsig = minsig # Minimum value sigma can take (in case of time evolving / halo mass evolving sigma)
 
         # Get cosmological parameters, construct HMF from Zeus
         CosmoParams_input = zeus21.Cosmo_Parameters_Input(zmin_CLASS=0.0)
@@ -174,7 +173,7 @@ class UVLF():
         sig = param_values[-1]
         dsigdM = full_paramvector[-1]
         param_values = list(param_values) # Need to convert to a list such that the last element can be an array
-        sig_array = sig + (dsigdM*(np.log10(self.HMFintclass.Mhtab)-12)) #-self.Astro_Parameters.Mpivot))
+        sig_array = sig + (dsigdM*(np.log10(self.HMFintclass.Mhtab)-self.Mhpivot))
         param_values[-1] = sig_array.clip(min=self.minsig) # Set the minimum value of sigma
 
         return param_values
@@ -301,7 +300,7 @@ def get_default_df():
         'dlogMcdz':{'fit': True, 'value': 0, 'start': 0.01, 'lower': -0.5, 'upper': 0.5, 'label': r'$d\log(M_c)/dz$'},
         'loge':    {'fit': True, 'value': -0.5, 'start': -1, 'lower': -1, 'upper': 1, 'label': r"$\log(\epsilon_0)$"},
         'dlogedz': {'fit': True, 'value': 0, 'start': 0.01, 'lower': -0.5, 'upper': 0.5, 'label': r'$d\log(\epsilon_0)/dz$'},
-        'sig':     {'fit': True, 'value': 0, 'start': 0.5, 'lower': 0, 'upper': 6, 'label': r'$\sigma_{\rm{UV}, 10}$'},
+        'sig':     {'fit': True, 'value': 0, 'start': 0.5, 'lower': 0, 'upper': 6, 'label': r'$\sigma_{\rm{UV}, M_c}$'},
         'dsigdz':  {'fit': True, 'value': 0, 'start': 0.01, 'lower': -0.5, 'upper': 0.5, 'label': r'$d\sigma_{\rm{UV}}/dz$'},
         'dsigdlogM':  {'fit': True, 'value': 0, 'start': 0.01, 'lower': -1, 'upper': 1, 
                     'label': r'$d\sigma_{\rm{UV}}/d\log(M_{h})$'}
