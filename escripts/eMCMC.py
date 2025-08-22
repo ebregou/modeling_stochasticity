@@ -13,7 +13,7 @@ from escripts import edata
 
 # MCMC class
 class UVLF():
-    def __init__(self, sorted_data, param_data, Mhpivot = 12.0, minsig = 0):
+    def __init__(self, sorted_data, param_data, Mhpivot = 12.0, minsig = 0.3):
         self.sorted_data = sorted_data # This isn't used in the MCMC at all but it's useful to have for plotting results.
         self.data = edata.reduce(self.sorted_data)
         if type(self.data[0]) is not list: # Make sure the format is correct for the rest of the script if only one redshift is input
@@ -28,7 +28,8 @@ class UVLF():
         self.ndim = np.sum(self.param_data['fit']) # Count the number of parameters to fit
         self.nwalkers = 2*self.ndim # Walkers = twice the number of parameters
         self.Mhpivot = Mhpivot # The central halo mass that corresponds to sigma_0
-        self.minsig = minsig # Minimum value sigma can take (in case of time evolving / halo mass evolving sigma)
+        self.minsig = minsig # Minimum value sigma can take (in case of time evolving / halo mass evolving sigma). If you set it any lower than
+                            # the default value, you may have a lumpy UVLF
 
         # Get cosmological parameters, construct HMF from Zeus
         CosmoParams_input = zeus21.Cosmo_Parameters_Input(zmin_CLASS=0.0)

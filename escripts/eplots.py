@@ -85,7 +85,7 @@ def percent_diff(x, y0, y1, labels, other_data = None):
 
     return fig, ax
 
-def ecorner(my_UVLF, true_vals = None, title = ''):
+def make_corner(my_UVLF, true_vals = None, title = ''):
     """
     Plot a corner plot, adding true values if any are given.
     Inputs:
