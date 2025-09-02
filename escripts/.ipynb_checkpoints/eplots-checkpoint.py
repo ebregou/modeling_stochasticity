@@ -8,6 +8,7 @@ import matplotlib.ticker as ticker
 from matplotlib import colors
 from matplotlib.legend_handler import HandlerLine2D
 from matplotlib.lines import Line2D
+from matplotlib.gridspec import GridSpec
 import numpy as np
 import corner
 import math
@@ -85,7 +86,7 @@ def percent_diff(x, y0, y1, labels, other_data = None):
 
     return fig, ax
 
-def make_corner(my_UVLF, true_vals = None, title = ''):
+def make_corner(my_UVLF, true_vals = None, title = '', burn_in = 8000):
     """
     Plot a corner plot, adding true values if any are given.
     Inputs:
@@ -93,10 +94,14 @@ def make_corner(my_UVLF, true_vals = None, title = ''):
         labels [list of strs]: label for each sample
         true_vals [1darray]: optional true values for each parameter. Don't include true values for parameters in excluded_params
         title [str]: plot title
+        burn_in [int]: number of samples to discard as burnin
     Returns:
         corner_plot [matplotlib figure]: corner plot showing the values and covariances of each parameter, and, optionally, their true values
     """
-    samples, best_fit, labels = my_UVLF.get_fit(exclude_unfit = True) # Get samples & parameter labels, excluding parameters that weren't fit
+    
+    # Get samples & parameter labels, excluding parameters that weren't fit
+    samples, best_fit, labels = my_UVLF.get_fit(exclude_unfit = True, burn_in = burn_in) 
+    
     
     if true_vals is None:
         corner_plot = corner.corner(samples, labels=labels, color = red) 
@@ -107,19 +112,21 @@ def make_corner(my_UVLF, true_vals = None, title = ''):
         
     return corner_plot
 
-def evolving_UVLF_fit(my_UVLF, z_plot = None, plot_samples = True, nsamples = 1, comparison_fits = [], comparison_labels = [], 
-                           title = 'UVLF data vs. MCMC fit'):
+def evolving_UVLF_fit(my_UVLF, z_plot = None, plot_from_chain = True, nsamples = 100, comparison_fits = [], comparison_labels = [], ncols = 3,
+                           title = 'UVLF data vs. MCMC fit', burn_in = 6000):
     """
     Plot the UVLF at different redshifts
     Inputs:
         my_UVLF: eMCMC UVLF object
         z_plot [list of floats]: redshifts to plot, or leave as None if you want to plot all of them
-        plot_samples [bool]: whether or not to plot the best fit and samples from my_UVLF. If False, only comparison_fits parameter values
-                             will be plotted (so you can quickly check different fits this way).
+        plot_from_chain [bool]: whether or not to plot the best fit and samples from the chain stored in my_UVLF. If False, only comparison_fits
+                             parameter values will be plotted (so you can quickly check different fits this way).
         nsamples [int]: number of samples from the MCMC chain you want to appear in addition to the best fit
         comparison_fits [list of lists]: lists of parameter values that will be used to create comparison UVLFs
         comparison_labels [list of strs]: labels that correspond to the parameter values in comparison_fits, for the legend
+        ncols [int]: number of columns to plot
         title [str]: overarching title of the plot
+        burn_in [int]: number of samples to discard as burnin
     Outputs:
         Figure showing the UVLF at different redshfits
     """
@@ -132,28 +139,29 @@ def evolving_UVLF_fit(my_UVLF, z_plot = None, plot_samples = True, nsamples = 1,
 
     # Figure out how many subplots to make
     nz = len(z_plot)
-    fig, ax = plt.subplots(1, nz, sharey = True)
-    if nz == 1:
-        ax = [ax]  # Make ax iterable even if it's just one subplot
-    fig.set_size_inches(3.5*nz, 3)
-    plt.subplots_adjust(wspace = 0.1)
+    fig = plt.figure()
+    gs = GridSpec(math.ceil((nz+1)/ncols), ncols, figure=fig)
+    
+    # Adjust size & spacing
+    fig.set_size_inches(3*ncols, 1.25*(nz+1))
+    plt.subplots_adjust(wspace = 0, hspace = 0.3)
 
     # Get samples & best fit
-    samples, best_fit, _ = my_UVLF.get_fit(exclude_unfit = True)
-    chi2 = -2 * my_UVLF.log_like(best_fit)
+    if plot_from_chain:
+        samples, best_fit, _ = my_UVLF.get_fit(exclude_unfit = True, burn_in = burn_in)
+        chi2 = -2 * my_UVLF.log_like(best_fit)
+    
     chi2_comparison = [-2*my_UVLF.log_like(fit) for fit in comparison_fits]
 
     # Set the same y limits for all the plots
     ylo, yhi = np.log10(min([min(dat[3]) for dat in my_UVLF.data]))-0.25, np.log10(max([max(dat[3]) for dat in my_UVLF.data]))+0.25 
 
+    # Get the x grid to evaluate the UVLF over
     plot_xdat, plot_xerr = my_UVLF.data[0][2], my_UVLF.data[0][5] # Use the lowest redshift MUV centers & bins as the grid to calculate the
                                                                 # theoretical UVLF on
-    
-    i = 0 # Tracks which axis you're on
-    for zbin in my_UVLF.sorted_data:
 
-        # Choose random samples from the MCMC chain
-        inds = np.random.randint(len(samples), size=nsamples) # Choose nsamples from the chain
+    i = 0 # Can't use enumerate because we're allowing for the possibility that the user will want to skip certain z bins 
+    for zbin in my_UVLF.sorted_data:
     
         zdat, zerr = zbin[0][0], zbin[0][1]
 
@@ -161,49 +169,74 @@ def evolving_UVLF_fit(my_UVLF, z_plot = None, plot_samples = True, nsamples = 1,
             print(f'Skipping $z={zdat}$')
             continue
 
-        if plot_samples:
+        ax = fig.add_subplot(gs[math.floor(i/ncols), i%ncols])
+
+        if plot_from_chain:
+            # Choose random samples from the MCMC chain
+            inds = np.random.randint(len(samples), size=nsamples) # Choose nsamples from the chain
+
             # Plot each sample from the chain
             for ind in inds: 
                 sample = samples[ind]
-                ax[i].plot(plot_xdat, np.log10(my_UVLF.UVLF_wrapper(zdat,zerr,plot_xdat, plot_xerr,sample)), alpha=6/max(nsamples, 6), 
+                ax.plot(plot_xdat, np.log10(my_UVLF.UVLF_wrapper(zdat,zerr,plot_xdat, plot_xerr,sample)), alpha=6/max(nsamples, 6), 
                            color = red, linestyle = '-', zorder = 0)
     
             # Plot best fit
             chi2 = -2* my_UVLF.log_like(best_fit)
-            ax[i].plot(plot_xdat, np.log10(my_UVLF.UVLF_wrapper(zdat, zerr, plot_xdat, plot_xerr, best_fit)), color = red, linestyle = '-', 
-                                           zorder = 0, label = f'best fit, $\chi^2 = {chi2:.0f}$')
+            ax.plot(plot_xdat, np.log10(my_UVLF.UVLF_wrapper(zdat, zerr, plot_xdat, plot_xerr, best_fit)), color = red, linestyle = '-', 
+                                           zorder = 0, label = fr'best fit, $\chi^2 = {chi2:.0f}$')
+            
+            ax.plot([0], [0], color = red, alpha = 0.5, label = 'sampled fits', linestyle = '-') # Create the label for the samples
+        
         # Plot comparison fits
         for fit, chi2_fit, label, color, ls in zip(comparison_fits, chi2_comparison, comparison_labels, [turquoise, yellow, orange, green], 
                                         ['solid', 'dashdot', 'dashed', 'dotted']):
-            ax[i].plot(plot_xdat, np.log10(my_UVLF.UVLF_wrapper(zdat,zerr,plot_xdat,plot_xerr, fit)), color = color, 
-                       label = f'{label}, $\chi^2 = {chi2_fit:.0f}$', linestyle = ls, zorder = 1)
+            ax.plot(plot_xdat, np.log10(my_UVLF.UVLF_wrapper(zdat,zerr,plot_xdat,plot_xerr, fit)), color = color, 
+                       label = fr'{label}, $\chi^2 = {chi2_fit:.0f}$', linestyle = ls, zorder = 1)
 
         # Plot data
         for dat, fmt in zip(zbin, ['o', 'v', 's']):
             _, _, xdat, ydat, yerr_upper, yerr_lower, xerr = edata.decompose(dat)
             yerr_lower, yerr_upper = estats.calc_log_error(ydat, yerr_lower), estats.calc_log_error(ydat, yerr_upper)
-            ax[i].errorbar(xdat, np.log10(ydat), [yerr_lower, yerr_upper], fmt = fmt, capsize=0, markersize = 9, label = dat[7], 
+            ax.errorbar(xdat, np.log10(ydat), [yerr_lower, yerr_upper], fmt = fmt, capsize=0, markersize = 9, label = dat[7], 
                            markeredgecolor = 'none', markerfacecolor = navy, ecolor = navy)
-        
-        ax[i].invert_xaxis()
-        ax[i].set_ylim(ylo, yhi)
-        ax[i].set_xlim(np.max(plot_xdat)+0.25, np.min(plot_xdat)-0.25)
-        ax[i].set_title(f'$z \simeq {round(zdat, 1)}$')
-        ax[i].xaxis.set_major_locator(ticker.MaxNLocator(integer=True)) # Make it so that only integers can be used in the  
+
+        ax.invert_xaxis()
+        ax.set_ylim(ylo, yhi)
+        ax.set_xlim(np.max(plot_xdat)+0.25, np.min(plot_xdat)-0.25)
+        ax.set_title(fr'$z \simeq {round(zdat, 1)}$', fontsize = 16, pad = 8)
+        ax.xaxis.set_major_locator(ticker.MaxNLocator(integer=True)) # Make it so that only integers can be used in the  
                                                                                        # axis labels
+        if i%3 != 0:
+            ax.axes.yaxis.set_ticklabels([])
 
-        i+=1 # Move to the next axis
-            
+        i += 1
+
     
-    ax[0].set_ylabel(r'$\log_{10}(\phi_{\rm{UV}}$ [$\rm{mag}^{-1} \rm{Mpc}^{-3}$])')
-    fig.text(.5, -0.05, r'$M_{\rm{UV}}$ [mag]', ha = 'center')
-    fig.text(.5, 1.1, title, ha = 'center', fontsize = 20)
-    
-    if len(ax) < 2: # Put the legend outside the box if there's only one redshift bin
-        ax[-1].legend(bbox_to_anchor= (1, 1))
+    # Text & labels
+    ylabel = r'$\log_{10}(\phi_{\rm{UV}}$ [$\rm{mag}^{-1} \rm{Mpc}^{-3}$])'
+    xlabel = r'$M_{\rm{UV}}$ [mag]'
+
+    if math.ceil((nz+1)/ncols) > 1:
+        fig.supylabel(ylabel, x = 0.05)
+        fig.supxlabel(xlabel, y = 0.07)
+        fig.text(.5, 0.915, title, ha = 'center', fontsize = 20)
     else:
-        ax[-1].legend()
+        if nz == 1:
+            ax.set_ylabel(ylabel)
+            ax.set_xlabel(xlabel)
+            ax.set_title(title)
+        else:
+            fig.text(0.065, 0.225, ylabel, rotation = 'vertical')
+            fig.text(0.375, 0, xlabel, ha = 'center')
+            fig.text(0.375, 1, title, ha = 'center', fontsize = 20)
 
+    # Put legend outside the last axis
+    fig_ax = fig.add_subplot(gs[math.floor(i/ncols), i%ncols])
+    fig_ax.axis("off")  
+    handles, labels = ax.get_legend_handles_labels() # Grab handles/labels from the real axes
+    fig_ax.legend(handles, labels, loc='center')
+    
     return fig
 
 def interpolate_colors(hex_colors, total_steps, show_plot = False):

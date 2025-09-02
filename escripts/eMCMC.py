@@ -6,6 +6,7 @@ import numpy as np
 import emcee
 import pandas as pd
 import zeus21
+import h5py
 
 # Local packages
 from escripts import eplots
@@ -13,7 +14,7 @@ from escripts import edata
 
 # MCMC class
 class UVLF():
-    def __init__(self, sorted_data, param_data, Mhpivot = 12.0, minsig = 0.3):
+    def __init__(self, sorted_data, param_data, Mhpivot = 12.0, minsig = 0.3, backend_filename = None):
         self.sorted_data = sorted_data # This isn't used in the MCMC at all but it's useful to have for plotting results.
         self.data = edata.reduce(self.sorted_data)
         if type(self.data[0]) is not list: # Make sure the format is correct for the rest of the script if only one redshift is input
@@ -30,6 +31,12 @@ class UVLF():
         self.Mhpivot = Mhpivot # The central halo mass that corresponds to sigma_0
         self.minsig = minsig # Minimum value sigma can take (in case of time evolving / halo mass evolving sigma). If you set it any lower than
                             # the default value, you may have a lumpy UVLF
+        self.backend_filename = backend_filename
+        if self.backend_filename is not None:
+            self.backend = emcee.backends.HDFBackend(self.backend_filename)
+            self.backend.reset(self.nwalkers, self.ndim)
+        else:
+            self.backend = None
 
         # Get cosmological parameters, construct HMF from Zeus
         CosmoParams_input = zeus21.Cosmo_Parameters_Input(zmin_CLASS=0.0)
@@ -39,7 +46,7 @@ class UVLF():
         self.Astro_Parameters = zeus21.Astro_Parameters(self.UserParams, self.CosmoParams)
 
         # Create MCMC sampler
-        self.sampler = emcee.EnsembleSampler(self.nwalkers, self.ndim, self.log_prob) 
+        self.sampler = emcee.EnsembleSampler(self.nwalkers, self.ndim, self.log_prob, backend = self.backend) 
 
     def generate_ICs(self):
         """
@@ -53,10 +60,7 @@ class UVLF():
         params1 = self.param_data['start'].to_numpy(dtype=np.float64)[self.fit] 
         # For some reason you need to specify dtype or it doesn't work
         
-        p0 = params1 + step_size * (np.random.randn(self.nwalkers, self.ndim))
-
-        # Run a short MCMC to spread the walkers out a bit
-        ICs = self.sampler.run_mcmc(p0, 100)
+        ICs = params1 + step_size * (np.random.randn(self.nwalkers, self.ndim))
         
         return ICs
 
@@ -149,8 +153,8 @@ class UVLF():
         """
 
         # Deal with piecewise parameters if necessary
-        if np.isscalar(all(self.param_data['value'][self.notfit])):
-            insert_vals = self.param_data['value'][self.notfit]
+        if np.isscalar(all(self.param_data['value'].iloc[self.notfit])):
+            insert_vals = self.param_data['value'].iloc[self.notfit]
         else:
             insert_vals = np.zeros(self.notfit) 
             for i, val in enumerate(self.param_data['value'][self.notfit]):
@@ -192,11 +196,11 @@ class UVLF():
                                               betastar=betastar, sigmaUV = sigmaUV) 
         return astroparams
 
-    def get_fit(self, discard=400, exclude_unfit = False, excluded_params = []):
+    def get_fit(self, burn_in = 8000, exclude_unfit = False, excluded_params = []):
         """
         Get samples and best fit values from MCMC samples (or, if the parameter is not fit, return the default value).
         Inputs:
-            discard [int]: number of steps in the chain to discard
+            burn_in [int]: number of steps to discard as burnin
             exclude_unfit [bool]: whether or not to exclude parameters that are set by default (and not by the MCMC chain) 
             excluded_params [list]: any parameters you don't want to return
         Outputs:
@@ -205,8 +209,8 @@ class UVLF():
             all_labels [list]: TeX representation of parameters, used with make_table()
         """
         
-        samples = self.sampler.get_chain(discard = discard, flat=True)
-        best_fit_data = samples[np.argmax(self.sampler.get_log_prob(discard=discard, flat=True))] # Get highest probability sample
+        samples = self.sampler.get_chain(discard = burn_in, flat=True)
+        best_fit_data = samples[np.argmax(self.sampler.get_log_prob(discard=burn_in, flat=True))] # Get highest probability sample
 
         i = 0
         best_fit = []
@@ -233,7 +237,7 @@ class UVLF():
     
         return np.delete(samples, exclude_indices, axis=1), best_fit, all_labels
 
-    def run_MCMC(self, Nsteps = 2000):
+    def run_MCMC(self, Nsteps = 100000):
         """
         Run MCMC, store the chain that's created
         Inputs:
@@ -246,8 +250,8 @@ class UVLF():
         # Get ICs for running MCMC
         ICs = self.generate_ICs()
 
-        # Run MCMC
-        _ = self.sampler.run_mcmc(ICs, Nsteps) 
+        # Run MCMC with a progress bar
+        _ = self.sampler.run_mcmc(ICs, Nsteps, progress = True)
 
         return
         
@@ -299,10 +303,10 @@ def get_default_df():
         'dbetadz': {'fit': True, 'value': 0, 'start': 0.01, 'lower': -0.5, 'upper': 0.5, 'label': r"$d\beta/dz$"},
         'logMc':   {'fit': True, 'value': 12, 'start': 12, 'lower': 9, 'upper': 16, 'label': r'$\log(M_c)$'},
         'dlogMcdz':{'fit': True, 'value': 0, 'start': 0.01, 'lower': -0.5, 'upper': 0.5, 'label': r'$d\log(M_c)/dz$'},
-        'loge':    {'fit': True, 'value': -0.5, 'start': -1, 'lower': -1, 'upper': 1, 'label': r"$\log(\epsilon_0)$"},
+        'loge':    {'fit': True, 'value': -0.5, 'start': -1, 'lower': -1.5, 'upper': 1, 'label': r"$\log(\epsilon_0)$"},
         'dlogedz': {'fit': True, 'value': 0, 'start': 0.01, 'lower': -0.5, 'upper': 0.5, 'label': r'$d\log(\epsilon_0)/dz$'},
         'sig':     {'fit': True, 'value': 0, 'start': 0.5, 'lower': 0, 'upper': 6, 'label': r'$\sigma_{\rm{UV}, M_c}$'},
-        'dsigdz':  {'fit': True, 'value': 0, 'start': 0.01, 'lower': -0.5, 'upper': 0.5, 'label': r'$d\sigma_{\rm{UV}}/dz$'},
+        'dsigdz':  {'fit': True, 'value': 0, 'start': 0.01, 'lower': -0.5, 'upper': 1, 'label': r'$d\sigma_{\rm{UV}}/dz$'},
         'dsigdlogM':  {'fit': True, 'value': 0, 'start': 0.01, 'lower': -1, 'upper': 1, 
                     'label': r'$d\sigma_{\rm{UV}}/d\log(M_{h})$'}
     }
