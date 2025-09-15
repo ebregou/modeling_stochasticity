@@ -5,7 +5,7 @@
 import matplotlib as mpl
 from matplotlib import pyplot as plt
 import matplotlib.ticker as ticker
-from matplotlib import colors
+from matplotlib import colors as mplcolors
 from matplotlib.legend_handler import HandlerLine2D
 from matplotlib.lines import Line2D
 from matplotlib.gridspec import GridSpec
@@ -100,7 +100,7 @@ def make_corner(my_UVLF, true_vals = None, title = '', burn_in = 8000):
     """
     
     # Get samples & parameter labels, excluding parameters that weren't fit
-    samples, best_fit, labels = my_UVLF.get_fit(exclude_unfit = True, burn_in = burn_in) 
+    samples, best_fit, _, labels = my_UVLF.get_fit(exclude_unfit = True, burn_in = burn_in) 
     
     
     if true_vals is None:
@@ -143,12 +143,12 @@ def evolving_UVLF_fit(my_UVLF, z_plot = None, plot_from_chain = True, nsamples =
     gs = GridSpec(math.ceil((nz+1)/ncols), ncols, figure=fig)
     
     # Adjust size & spacing
-    fig.set_size_inches(3*ncols, 1.25*(nz+1))
+    fig.set_size_inches(3*ncols, 3*math.ceil((nz+1)/ncols))
     plt.subplots_adjust(wspace = 0, hspace = 0.3)
 
     # Get samples & best fit
     if plot_from_chain:
-        samples, best_fit, _ = my_UVLF.get_fit(exclude_unfit = True, burn_in = burn_in)
+        samples, best_fit, _, _= my_UVLF.get_fit(exclude_unfit = True, burn_in = burn_in)
         chi2 = -2 * my_UVLF.log_like(best_fit)
     
     chi2_comparison = [-2*my_UVLF.log_like(fit) for fit in comparison_fits]
@@ -207,7 +207,7 @@ def evolving_UVLF_fit(my_UVLF, z_plot = None, plot_from_chain = True, nsamples =
         ax.set_title(fr'$z \simeq {round(zdat, 1)}$', fontsize = 16, pad = 8)
         ax.xaxis.set_major_locator(ticker.MaxNLocator(integer=True)) # Make it so that only integers can be used in the  
                                                                                        # axis labels
-        if i%3 != 0:
+        if i%ncols != 0:
             ax.axes.yaxis.set_ticklabels([])
 
         i += 1
@@ -220,7 +220,7 @@ def evolving_UVLF_fit(my_UVLF, z_plot = None, plot_from_chain = True, nsamples =
     if math.ceil((nz+1)/ncols) > 1:
         fig.supylabel(ylabel, x = 0.05)
         fig.supxlabel(xlabel, y = 0.07)
-        fig.text(.5, 0.915, title, ha = 'center', fontsize = 20)
+        fig.text(.5, 0.95, title, ha = 'center', fontsize = 20)
     else:
         if nz == 1:
             ax.set_ylabel(ylabel)
@@ -251,7 +251,7 @@ def interpolate_colors(hex_colors, total_steps, show_plot = False):
         fig [matplotlib figure]: visualization of the gradient
     """
     # Convert hex colors to RGB
-    rgb_colors = [np.array(colors.to_rgb(color)) for color in hex_colors]
+    rgb_colors = [np.array(mplcolors.to_rgb(color)) for color in hex_colors]
     interpolated_colors = []
 
     steps_between = math.ceil((total_steps-len(hex_colors)) / (len(hex_colors)-1)) # calculate how many colors in between each specified color
@@ -263,7 +263,7 @@ def interpolate_colors(hex_colors, total_steps, show_plot = False):
         end = rgb_colors[i + 1]
         for t in np.linspace(0, 1, steps_between + 2)[:-1]:  # omit the last to avoid duplicates
             interpolated = (1 - t) * start + t * end
-            interpolated_colors.append(colors.to_hex(interpolated))
+            interpolated_colors.append(mplcolors.to_hex(interpolated))
     
     # Append the last color explicitly
     interpolated_colors.append(hex_colors[-1])

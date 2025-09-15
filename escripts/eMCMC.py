@@ -15,7 +15,8 @@ from escripts import edata
 # MCMC class
 class UVLF():
     def __init__(self, sorted_data, param_data, Mhpivot = 12.0, minsig = 0.3, backend_filename = None):
-        self.sorted_data = sorted_data # This isn't used in the MCMC at all but it's useful to have for plotting results.
+        self.sorted_data = sorted_data # This isn't used in the MCMC at all but it's useful to have for plotting results since it divides data
+                                        # by redshift & author
         self.data = edata.reduce(self.sorted_data)
         if type(self.data[0]) is not list: # Make sure the format is correct for the rest of the script if only one redshift is input
             self.data = [self.data] 
@@ -50,18 +51,17 @@ class UVLF():
 
     def generate_ICs(self):
         """
-        Generate different ICs, run a short MCMC to spread them out a bit
+        Generate initial conditions
         Returns: 
             ICs [array]: ICs to run MCMC with
         """
-        step_size = [(upper-lower)/100 for upper, lower in zip(self.uppers[self.fit], self.lowers[self.fit])]
 
-        # Start each walker at a different place
-        params1 = self.param_data['start'].to_numpy(dtype=np.float64)[self.fit] 
-        # For some reason you need to specify dtype or it doesn't work
-        
-        ICs = params1 + step_size * (np.random.randn(self.nwalkers, self.ndim))
-        
+        ordered_ICs = np.linspace(self.lowers[self.fit], self.uppers[self.fit], self.nwalkers, dtype = 'float') 
+        # Need to set datatype or it won't work
+        rand_inds = np.random.rand(*ordered_ICs.shape).argsort(axis=0) # Shuffled indices (this is so that a walker that starts at a lower for a
+                                                            # given parameter doesn't also start at the lower bound for all other parameters)
+        ICs = np.take_along_axis(ordered_ICs,rand_inds,axis=0) # Apply the randomization
+
         return ICs
 
     def log_prob(self, paramvector): 
@@ -192,11 +192,11 @@ class UVLF():
             astroparams [zeus Astro_Parameters object]: parameters for the UVLF, wrapped so that Zeus can read them
         """
         alphastar, betastar, log10Mcstar, log10epsstar, sigmaUV = params
-        astroparams = zeus21.Astro_Parameters(self.UserParams, self.CosmoParams, epsstar=10**log10epsstar, Mc=10**log10Mcstar,alphastar=alphastar, 
-                                              betastar=betastar, sigmaUV = sigmaUV) 
+        astroparams = zeus21.Astro_Parameters(self.UserParams, self.CosmoParams, epsstar=10**log10epsstar, 
+                                              Mc=10**log10Mcstar,alphastar=alphastar, betastar=betastar, sigmaUV = sigmaUV) 
         return astroparams
 
-    def get_fit(self, burn_in = 8000, exclude_unfit = False, excluded_params = []):
+    def get_fit(self, burn_in = 8000, exclude_unfit = True, excluded_params = []):
         """
         Get samples and best fit values from MCMC samples (or, if the parameter is not fit, return the default value).
         Inputs:
@@ -206,6 +206,7 @@ class UVLF():
         Outputs:
             samples [Ndarray]: MCMC chain samples
             best_fit [list]: ordered list of best fit parameters (or default parameters where applicable)
+            bounds [Nx2 array]: Upper and lower bounds on parameter values that correspond to the 16th & 84th percentile 
             all_labels [list]: TeX representation of parameters, used with make_table()
         """
         
@@ -234,8 +235,13 @@ class UVLF():
             
             best_fit.append(round(value, 2))
             all_labels.append(self.param_data.T[key].label)
+
+        # Get the bounds on best fit data
+        bounds = np.zeros((len(samples[0]),2))
+        for i in range(len(samples[0])):
+            bounds[i] = np.percentile(samples[:, i], [16, 84])
     
-        return np.delete(samples, exclude_indices, axis=1), best_fit, all_labels
+        return np.delete(samples, exclude_indices, axis=1), best_fit, bounds, all_labels
 
     def run_MCMC(self, Nsteps = 100000):
         """
@@ -300,30 +306,40 @@ def get_default_df():
         'alpha':   {'fit': True, 'value': 0.6, 'start': 0.6, 'lower': 0, 'upper': 4, 'label': r"$\alpha$"},
         'dalphadz':{'fit': True, 'value': 0, 'start': 0.01, 'lower': -0.5, 'upper': 0.5, 'label': r"$d\alpha/dz$"},
         'beta':    {'fit': True, 'value': -0.5, 'start': -0.5, 'lower': -1, 'upper': 0, 'label': r"$\beta$"},
-        'dbetadz': {'fit': True, 'value': 0, 'start': 0.01, 'lower': -0.5, 'upper': 0.5, 'label': r"$d\beta/dz$"},
+        'dbetadz': {'fit': True, 'value': 0, 'start': 0.01, 'lower': -0.5, 'upper': 1.5, 'label': r"$d\beta/dz$"},
         'logMc':   {'fit': True, 'value': 12, 'start': 12, 'lower': 9, 'upper': 16, 'label': r'$\log(M_c)$'},
         'dlogMcdz':{'fit': True, 'value': 0, 'start': 0.01, 'lower': -0.5, 'upper': 0.5, 'label': r'$d\log(M_c)/dz$'},
-        'loge':    {'fit': True, 'value': -0.5, 'start': -1, 'lower': -1.5, 'upper': 1, 'label': r"$\log(\epsilon_0)$"},
+        'loge':    {'fit': True, 'value': -0.5, 'start': -1, 'lower': -2, 'upper': 1, 'label': r"$\log(\epsilon_0)$"},
         'dlogedz': {'fit': True, 'value': 0, 'start': 0.01, 'lower': -0.5, 'upper': 0.5, 'label': r'$d\log(\epsilon_0)/dz$'},
         'sig':     {'fit': True, 'value': 0, 'start': 0.5, 'lower': 0, 'upper': 6, 'label': r'$\sigma_{\rm{UV}, M_c}$'},
         'dsigdz':  {'fit': True, 'value': 0, 'start': 0.01, 'lower': -0.5, 'upper': 1, 'label': r'$d\sigma_{\rm{UV}}/dz$'},
-        'dsigdlogM':  {'fit': True, 'value': 0, 'start': 0.01, 'lower': -1, 'upper': 1, 
+        'dsigdlogM':  {'fit': True, 'value': 0, 'start': 0.01, 'lower': -1, 'upper': 1.5, 
                     'label': r'$d\sigma_{\rm{UV}}/d\log(M_{h})$'}
     }
 
     return pd.DataFrame(default_values).T
 
-def make_table(best_fits, param_labels, fit_labels):
+def make_table(best_fits, param_labels, fit_labels, bounds):
     """
     Make a table to compare best fit values of parameters
     Inputs:
         best_fits [list of lists]: list of best fit parameters
         param_labels [list of strs]: names of parameters (rows of the table)
         fit_labels [list]: names of each type of fit (columns of the table)
+        bounds [list of Nx2 arrays]: list of arrays with col1 = lower bound, col2 = upper bound on the best fit parameters
     Outputs:
         dataframe table with labeled parameters for comparison
     """
-    df = pd.DataFrame(best_fits, columns = param_labels)
+    df_fill = []
+    for best_fit, bound in zip(best_fits, bounds):
+        if bounds is not None: # Format the parameters with +/-
+            if any(bound[:,1]-best_fit < 0) or any(bound[:,0]-best_fit > 0): # Check that the bounds make sense
+                raise Exception("Your best fit values are not within your bounds")
+            df_fill.append([f'${bf}^{{+{round(bd[1]-bf,2)}}}_{{{round(bd[0]-bf,2)}}}$' for bf, bd in zip(best_fit, bound)])
+        else:
+            df_fill.append(best_fit)
+
+    df = pd.DataFrame(df_fill, columns = param_labels)
     df.index = fit_labels
-    
+
     return df.T
