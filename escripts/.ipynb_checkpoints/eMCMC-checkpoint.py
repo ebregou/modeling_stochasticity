@@ -196,7 +196,7 @@ class UVLF():
                                               Mc=10**log10Mcstar,alphastar=alphastar, betastar=betastar, sigmaUV = sigmaUV) 
         return astroparams
 
-    def get_fit(self, burn_in = 8000, exclude_unfit = True, excluded_params = []):
+    def get_fit(self, burn_in = None, exclude_unfit = True, excluded_params = []):
         """
         Get samples and best fit values from MCMC samples (or, if the parameter is not fit, return the default value).
         Inputs:
@@ -209,6 +209,9 @@ class UVLF():
             bounds [Nx2 array]: Upper and lower bounds on parameter values that correspond to the 16th & 84th percentile 
             all_labels [list]: TeX representation of parameters, used with make_table()
         """
+
+        if burn_in is None:
+            burn_in = 8000
         
         samples = self.sampler.get_chain(discard = burn_in, flat=True)
         best_fit_data = samples[np.argmax(self.sampler.get_log_prob(discard=burn_in, flat=True))] # Get highest probability sample
@@ -334,7 +337,9 @@ def make_table(best_fits, param_labels, fit_labels, bounds):
     for best_fit, bound in zip(best_fits, bounds):
         if bounds is not None: # Format the parameters with +/-
             if any(bound[:,1]-best_fit < 0) or any(bound[:,0]-best_fit > 0): # Check that the bounds make sense
-                raise Exception("Your best fit values are not within your bounds")
+                print(
+                    "Your best fit values are not within your 16th and 84th percentile upper and lower bounds. Take care when interpreting this table and consider broadening your priors."
+                )
             df_fill.append([f'${bf}^{{+{round(bd[1]-bf,2)}}}_{{{round(bd[0]-bf,2)}}}$' for bf, bd in zip(best_fit, bound)])
         else:
             df_fill.append(best_fit)

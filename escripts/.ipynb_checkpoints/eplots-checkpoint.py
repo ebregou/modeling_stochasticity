@@ -4,6 +4,8 @@
 # Standard packages
 import matplotlib as mpl
 from matplotlib import pyplot as plt
+plt.style.use('/Users/eb35267/Desktop/mpl_style/estyle.mplstyle')
+plt.style.use('/Users/eb35267/Desktop/mpl_style/notebook_style.mplstyle')
 import matplotlib.ticker as ticker
 from matplotlib import colors as mplcolors
 from matplotlib.legend_handler import HandlerLine2D
@@ -86,7 +88,7 @@ def percent_diff(x, y0, y1, labels, other_data = None):
 
     return fig, ax
 
-def make_corner(my_UVLF, true_vals = None, title = '', burn_in = 8000):
+def make_corner(my_UVLF, true_vals = None, title = '', burn_in = None, excluded_params = []):
     """
     Plot a corner plot, adding true values if any are given.
     Inputs:
@@ -95,12 +97,13 @@ def make_corner(my_UVLF, true_vals = None, title = '', burn_in = 8000):
         true_vals [1darray]: optional true values for each parameter. Don't include true values for parameters in excluded_params
         title [str]: plot title
         burn_in [int]: number of samples to discard as burnin
+        excluded_params [list]: list of parameters to exclude from the plot
     Returns:
         corner_plot [matplotlib figure]: corner plot showing the values and covariances of each parameter, and, optionally, their true values
     """
     
     # Get samples & parameter labels, excluding parameters that weren't fit
-    samples, best_fit, _, labels = my_UVLF.get_fit(exclude_unfit = True, burn_in = burn_in) 
+    samples, best_fit, _, labels = my_UVLF.get_fit(exclude_unfit = True, burn_in = burn_in, excluded_params = excluded_params) 
     
     
     if true_vals is None:
@@ -113,7 +116,7 @@ def make_corner(my_UVLF, true_vals = None, title = '', burn_in = 8000):
     return corner_plot
 
 def evolving_UVLF_fit(my_UVLF, z_plot = None, plot_from_chain = True, nsamples = 100, comparison_fits = [], comparison_labels = [], ncols = 3,
-                           title = 'UVLF data vs. MCMC fit', burn_in = 6000):
+                           title = 'UVLF data vs. MCMC fit', burn_in = None):
     """
     Plot the UVLF at different redshifts
     Inputs:
