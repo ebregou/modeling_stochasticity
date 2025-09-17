@@ -14,7 +14,7 @@ from escripts import edata
 
 # MCMC class
 class UVLF():
-    def __init__(self, sorted_data, param_data, Mhpivot = 12.0, minsig = 0.3, backend_filename = None):
+    def __init__(self, sorted_data, param_data, Mhpivot = 11, minsig = 0.3, backend_filename = None, precisionboost = 1.5):
         self.sorted_data = sorted_data # This isn't used in the MCMC at all but it's useful to have for plotting results since it divides data
                                         # by redshift & author
         self.data = edata.reduce(self.sorted_data)
@@ -22,7 +22,7 @@ class UVLF():
             self.data = [self.data] 
         self.zs = [dat[0] for dat in self.data]
         self.param_data = param_data
-        self.UserParams = zeus21.User_Parameters()
+        self.UserParams = zeus21.User_Parameters(precisionboost = precisionboost) # Increase the resolution of the HMF to get smooth UVLFs
         self.fit = np.where(self.param_data['fit'])[0]
         self.notfit = np.where(self.param_data['fit'] == False)[0]
         self.lowers = self.param_data['lower'].to_numpy()
@@ -312,7 +312,7 @@ def get_default_df():
         'dbetadz': {'fit': True, 'value': 0, 'start': 0.01, 'lower': -0.5, 'upper': 1.5, 'label': r"$d\beta/dz$"},
         'logMc':   {'fit': True, 'value': 12, 'start': 12, 'lower': 9, 'upper': 16, 'label': r'$\log(M_c)$'},
         'dlogMcdz':{'fit': True, 'value': 0, 'start': 0.01, 'lower': -0.5, 'upper': 0.5, 'label': r'$d\log(M_c)/dz$'},
-        'loge':    {'fit': True, 'value': -0.5, 'start': -1, 'lower': -2, 'upper': 1, 'label': r"$\log(\epsilon_0)$"},
+        'loge':    {'fit': True, 'value': -0.5, 'start': -1, 'lower': -2.5, 'upper': 1, 'label': r"$\log(\epsilon_0)$"},
         'dlogedz': {'fit': True, 'value': 0, 'start': 0.01, 'lower': -0.5, 'upper': 0.5, 'label': r'$d\log(\epsilon_0)/dz$'},
         'sig':     {'fit': True, 'value': 0, 'start': 0.5, 'lower': 0, 'upper': 6, 'label': r'$\sigma_{\rm{UV}, M_c}$'},
         'dsigdz':  {'fit': True, 'value': 0, 'start': 0.01, 'lower': -0.5, 'upper': 1, 'label': r'$d\sigma_{\rm{UV}}/dz$'},
