@@ -20,7 +20,6 @@ import math
 import zeus21
 
 # Local packages
-from escripts import estats
 from escripts import eMCMC
 from escripts import edata
 
@@ -205,9 +204,8 @@ def evolving_UVLF_fit(my_UVLF, z_plot = None, plot_from_chain = True, nsamples =
         # Plot data
         for dat, fmt in zip(zbin, ['o', 'v', 's']):
             _, _, xdat, ydat, yerr_upper, yerr_lower, xerr = edata.decompose(dat)
-            yerr_lower, yerr_upper = estats.calc_log_error(ydat, yerr_lower), estats.calc_log_error(ydat, yerr_upper)
-            ax.errorbar(xdat, np.log10(ydat), [yerr_lower, yerr_upper], fmt = fmt, capsize=0, markersize = 9, label = dat[7], 
-                           markeredgecolor = 'none', markerfacecolor = navy, ecolor = navy)
+            ax.scatter(xdat, np.log10(ydat), marker = fmt, label = dat[7], c = navy, s = 100)
+            
 
         ax.invert_xaxis()
         ax.set_ylim(ylo, yhi)
