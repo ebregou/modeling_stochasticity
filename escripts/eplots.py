@@ -4,16 +4,20 @@
 # Standard packages
 import matplotlib as mpl
 from matplotlib import pyplot as plt
-plt.style.use('/Users/eb35267/Desktop/mpl_style/estyle.mplstyle')
-plt.style.use('/Users/eb35267/Desktop/mpl_style/notebook_style.mplstyle')
+plt.style.use('/Users/eb35267/Desktop/code/mpl_style/estyle.mplstyle')
+plt.style.use('/Users/eb35267/Desktop/code/mpl_style/notebook_style.mplstyle')
 import matplotlib.ticker as ticker
 from matplotlib import colors as mplcolors
+from matplotlib.colors import LinearSegmentedColormap
+from matplotlib.colors import BoundaryNorm
+from matplotlib.cm import ScalarMappable
 from matplotlib.legend_handler import HandlerLine2D
 from matplotlib.lines import Line2D
 from matplotlib.gridspec import GridSpec
 import numpy as np
 import corner
 import math
+import zeus21
 
 # Local packages
 from escripts import estats
@@ -140,6 +144,9 @@ def evolving_UVLF_fit(my_UVLF, z_plot = None, plot_from_chain = True, nsamples =
 
     assert all([z in data_z for z in z_plot]), 'The redshifts specified don\'t match the redshifts of the data'
 
+    if len(comparison_fits) > 0:
+        assert len(comparison_labels) > 0, 'If specifying comparison fits you must also give their labels'
+
     # Figure out how many subplots to make
     nz = len(z_plot)
     fig = plt.figure()
@@ -152,7 +159,6 @@ def evolving_UVLF_fit(my_UVLF, z_plot = None, plot_from_chain = True, nsamples =
     # Get samples & best fit
     if plot_from_chain:
         samples, best_fit, _, _= my_UVLF.get_fit(exclude_unfit = True, burn_in = burn_in)
-        chi2 = -2 * my_UVLF.log_like(best_fit)
     
     chi2_comparison = [-2*my_UVLF.log_like(fit) for fit in comparison_fits]
 
@@ -162,7 +168,6 @@ def evolving_UVLF_fit(my_UVLF, z_plot = None, plot_from_chain = True, nsamples =
     # Get the x grid to evaluate the UVLF over
     plot_xdat, plot_xerr = my_UVLF.data[0][2], my_UVLF.data[0][5] # Use the lowest redshift MUV centers & bins as the grid to calculate the
                                                                 # theoretical UVLF on
-
     i = 0 # Can't use enumerate because we're allowing for the possibility that the user will want to skip certain z bins 
     for zbin in my_UVLF.sorted_data:
     
@@ -190,7 +195,7 @@ def evolving_UVLF_fit(my_UVLF, z_plot = None, plot_from_chain = True, nsamples =
                                            zorder = 0, label = fr'best fit, $\chi^2 = {chi2:.0f}$')
             
             ax.plot([0], [0], color = red, alpha = 0.5, label = 'sampled fits', linestyle = '-') # Create the label for the samples
-        
+
         # Plot comparison fits
         for fit, chi2_fit, label, color, ls in zip(comparison_fits, chi2_comparison, comparison_labels, [turquoise, yellow, orange, green], 
                                         ['solid', 'dashdot', 'dashed', 'dotted']):
@@ -215,14 +220,17 @@ def evolving_UVLF_fit(my_UVLF, z_plot = None, plot_from_chain = True, nsamples =
 
         i += 1
 
-    
+
     # Text & labels
     ylabel = r'$\log_{10}(\phi_{\rm{UV}}$ [$\rm{mag}^{-1} \rm{Mpc}^{-3}$])'
     xlabel = r'$M_{\rm{UV}}$ [mag]'
 
     if math.ceil((nz+1)/ncols) > 1:
         fig.supylabel(ylabel, x = 0.05)
-        fig.supxlabel(xlabel, y = 0.07)
+        if i%ncols == 1:
+            fig.supxlabel(xlabel, y = 0.07)
+        else:
+            fig.supxlabel(xlabel, y = 0)
         fig.text(.5, 0.95, title, ha = 'center', fontsize = 20)
     else:
         if nz == 1:
@@ -235,9 +243,9 @@ def evolving_UVLF_fit(my_UVLF, z_plot = None, plot_from_chain = True, nsamples =
             fig.text(0.375, 1, title, ha = 'center', fontsize = 20)
 
     # Put legend outside the last axis
+    handles, labels = ax.get_legend_handles_labels() # Grab handles/labels from the real axes
     fig_ax = fig.add_subplot(gs[math.floor(i/ncols), i%ncols])
     fig_ax.axis("off")  
-    handles, labels = ax.get_legend_handles_labels() # Grab handles/labels from the real axes
     fig_ax.legend(handles, labels, loc='center')
     
     return fig
@@ -282,6 +290,64 @@ def interpolate_colors(hex_colors, total_steps, show_plot = False):
         return interpolated_colors, fig
     else:
         return interpolated_colors
+
+def MUV_distribution(my_UVLF, zs, param_values, Mhtab):
+    """
+    Plot P(MUV|Mh) for two different redshifts given a set of UVLF parameters
+    Inputs:
+        my_UVLF [eMCMC UVLF object]: UVLF object used for its methods such as applying time evolution to parameter values & wrapping them in the
+                                        right format for zeus21
+        zs [1darray]: <= 2 redshifts to plot for comparison
+        param_values [1darray]: values of parameters to calculate MUV from Mh
+        Mhtab [1darray]: log(Mh/M_odot) for plotting
+    Outputs:
+        Figure showing P(MUV|Mh) for different halo masses. Note that even without time-evolving parameters, the P(MUV|Mh) will look different at
+        differnet redshifts due time-evolving mass accretion rates
+    """
+    assert(len(zs)) <= 2, 'This routine can currently only accommodate 2 redshifts at once'
+    
+    # Create figure
+    fig, ax = plt.subplots()
+    ax.invert_xaxis()
+
+    MUV_range = np.linspace(-15, -24, 500) # Define range of MUVs to examine
+    my_UVLF.HMFintclass.Mhtab = 10**Mhtab # Set the UVLF table of halo masses to the input value
+
+    # Create gradient for color-coding curves based on corresponding halo mass
+    cmap = LinearSegmentedColormap.from_list("custom", [red, navy]) 
+    dM = Mhtab[1]-Mhtab[0] # Separation between each halo mass
+    norm = BoundaryNorm(np.arange(min(Mhtab), max(Mhtab)+dM, dM), cmap.N)
+    
+    for z, ls in zip(zs, ['-', '--']): # Plot curves for each redshift
+        params = my_UVLF.time_evolution(param_values, z) # Calculate how parameters evolve with redshift
+        astroparams = my_UVLF.param_wrapper(params)# Get the parameters in the right format for use with zeus21
+        SFRlist = zeus21.sfrd.SFR_II(astroparams, my_UVLF.CosmoParams, my_UVLF.HMFintclass, 10**Mhtab, z, z) # Calculate SFR
+        MUVbarlist = zeus21.UVLFs.MUV_of_SFR(SFRlist, astroparams._kappaUV) # Use SFR to calculate average MUV
+        MUVbarlist = np.fmin(MUVbarlist, zeus21.constants._MAGMAX) # Make sure that MUV doesn't exceed a set value
+
+        ax.plot(MUV_range[0], 0, ls = ls, color = 'black', label = f'$z={z}$') # Make invisible line for legend purposes
+
+        for sigUV, MUV_bar, Mh in zip(params[-1], MUVbarlist, Mhtab): # Plot different color-coded Gaussians for different halo masses
+            # Get color based on halo mass
+            frac = (Mh - Mhtab.min()) / (Mhtab.max() - Mhtab.min()) 
+            color = cmap(frac)
+            P = (1/(sigUV * np.sqrt(2*np.pi)))*np.exp(-(MUV_range-MUV_bar)**2/(2*sigUV**2)) # Calculate Gaussian based on MUV_bar & sig_UV
+            
+            ax.plot(MUV_range, P, color = color, ls = ls)
+
+    # Color bar things:
+    boundaries = np.arange(Mhtab.min()-(dM/2), Mhtab.max()+(1.5*dM), dM) # set bin edges between mass values
+    norm = BoundaryNorm(boundaries, cmap.N)
+    sm = ScalarMappable(cmap=cmap, norm=norm)
+    cbar = fig.colorbar(sm, ax=ax, boundaries=boundaries, ticks=Mhtab, aspect = 14)
+    cbar.set_label(r'$\log_{10}{M_h}$')
+
+    # Figure labels
+    ax.set_ylabel(r'$p(M_{\rm{UV}}|M_h)$')
+    ax.set_xlabel(r'$M_{\rm{UV}}$ [mag]')
+    ax.legend(loc = 'upper left')
+
+    return fig
 
 def custom_percent_formatter(x, pos):
     """

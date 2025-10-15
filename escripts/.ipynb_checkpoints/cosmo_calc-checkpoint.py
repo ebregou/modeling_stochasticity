@@ -93,3 +93,40 @@ def get_CosmoParams(params = None, z_min = 0, HMF_CHOICE = 'ST'):
     CosmoParams = zeus21.Cosmo_Parameters(UserParams, CosmoParams_input, ClassyCosmo)
 
     return ClassyCosmo, CosmoParams
+
+def calc_Mz(zs, M0, my_UVLF):
+    """
+    Calculate the mass of a halo at redshift z given its mass at z = 0.
+    Currently this takes a UVLF object as an input because it saves time when you already have cosmological parameters stored. I could make this
+    method more flexible in the future.
+    Inputs:
+        zs [1darray]: list of redshifts to calculate the halo mass for
+        M0 [float]: log(M_h/M_odot) at z = 0
+        my_UVLF [UVLF object]: UVLF object used for efficiency since it has cosmological parameters stored
+    """
+    # Initiate
+    steps = len(zs)
+    Ms = np.zeros(steps+1)
+    Ms[0] = 10**M0
+    dz = (zs.max() - zs.min())/(steps+1)
+    
+    for i in range(steps): # Integrate dM/dz to get M(z)
+        # Multiply dM/dt by dt/dz to get M_dot
+        M_dot = calc_M_dot(Ms[i], zs[i], my_UVLF) /  ((1+zs[i]) * 
+                                                      (zeus21.Hub(my_UVLF.CosmoParams, zs[i])*u.km/(u.s*u.Mpc)).to(u.year**-1).value) 
+        # Had to take out a negative here to make it work; not sure why. Normally dt/dz would include a -(1+z)
+        Ms[i+1] = Ms[i] - (M_dot * dz)
+
+    return np.log10(Ms)
+
+def calc_M_dot(M_h, z, my_UVLF):
+    """
+    Calculate the mass accretion rate of a halo given redshift & the mass at that redshift
+    Inputs:
+        M_h [float]: Mass of the halo at redshift z [solar masses]
+        z [float]: redshift
+        my_UVLF [UVLF object]: UVLF object used for efficiency since it has cosmological parameters stored
+    Returns:
+        Mh_dot [solar masses per year]
+    """
+    return 25.3*(M_h/1e12)**(1.1)*(1+(1.65*z))*np.sqrt((my_UVLF.CosmoParams.OmegaM*(1+z)**3)+my_UVLF.CosmoParams.OmegaL)

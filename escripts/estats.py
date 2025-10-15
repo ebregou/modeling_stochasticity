@@ -5,7 +5,7 @@ import numpy as np
 
 def calc_log_error(dat, err):
     """
-    Propagating error into logspace. See notes from 5/8 for the derivation
+    Propagating error into logspace (first order expansion). See notes from 5/8 for the derivation
     Parameters:
         dat [1darray]: data in linear space
         err [1darray of tuples]: error in linear space

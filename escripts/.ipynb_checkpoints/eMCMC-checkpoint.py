@@ -14,7 +14,7 @@ from escripts import edata
 
 # MCMC class
 class UVLF():
-    def __init__(self, sorted_data, param_data, Mhpivot = 11, minsig = 0.3, backend_filename = None, precisionboost = 1.5):
+    def __init__(self, sorted_data, param_data, Mhpivot = 11, minsig = 0.3, backend_filename = None, precisionboost = 1.5, cut_sig = True):
         self.sorted_data = sorted_data # This isn't used in the MCMC at all but it's useful to have for plotting results since it divides data
                                         # by redshift & author
         self.data = edata.reduce(self.sorted_data)
@@ -33,6 +33,7 @@ class UVLF():
         self.minsig = minsig # Minimum value sigma can take (in case of time evolving / halo mass evolving sigma). If you set it any lower than
                             # the default value, you may have a lumpy UVLF
         self.backend_filename = backend_filename
+        self.cut_sig = cut_sig
         if self.backend_filename is not None:
             self.backend = emcee.backends.HDFBackend(self.backend_filename)
             self.backend.reset(self.nwalkers, self.ndim)
@@ -49,20 +50,15 @@ class UVLF():
         # Create MCMC sampler
         self.sampler = emcee.EnsembleSampler(self.nwalkers, self.ndim, self.log_prob, backend = self.backend) 
 
-    def generate_ICs(self):
+    def generate_ICs_from_table(self):
         """
-        Generate initial conditions
+        Generate initial conditions using the general funtion generate_ICs, with the uppers & lowers provided in the input dataframe defining the 
+        bounds.
         Returns: 
             ICs [array]: ICs to run MCMC with
         """
-
-        ordered_ICs = np.linspace(self.lowers[self.fit], self.uppers[self.fit], self.nwalkers, dtype = 'float') 
-        # Need to set datatype or it won't work
-        rand_inds = np.random.rand(*ordered_ICs.shape).argsort(axis=0) # Shuffled indices (this is so that a walker that starts at a lower for a
-                                                            # given parameter doesn't also start at the lower bound for all other parameters)
-        ICs = np.take_along_axis(ordered_ICs,rand_inds,axis=0) # Apply the randomization
-
-        return ICs
+        
+        return generate_ICs(self.lowers[self.fit], self.uppers[self.fit], self.nwalkers)
 
     def log_prob(self, paramvector): 
         """
@@ -145,6 +141,7 @@ class UVLF():
     def time_evolution(self, paramvector, zcenter):
         """
         Applies the time evolution of each parameter so that we feed the evolved value, matching the given redshift, to the UVLF wrapper
+        Applies the halo mass evolution of sigmaUV & ensures that halos smaller than the atomic cooling limit are given small sigmaUV
         Inputs:
             paramvector [1darray]: parameters
             zcenter [float]: center redshift value for binned UVLF data
@@ -179,7 +176,15 @@ class UVLF():
         dsigdM = full_paramvector[-1]
         param_values = list(param_values) # Need to convert to a list such that the last element can be an array
         sig_array = sig + (dsigdM*(np.log10(self.HMFintclass.Mhtab)-self.Mhpivot))
-        param_values[-1] = sig_array.clip(min=self.minsig) # Set the minimum value of sigma
+        sig_array = sig_array.clip(min=self.minsig)
+
+        # Assign small sigma to halos below the atomic cooling limit
+        Matom = zeus21.sfrd.Matom(zcenter) # Get the atomic cooling limit at this redshift
+        if self.cut_sig:
+            below_limit = np.where(self.HMFintclass.Mhtab < Matom)[0]
+            sig_array[below_limit] = 1e-4
+
+        param_values[-1] = sig_array # Set the minimum value of sigma
 
         return param_values
 
@@ -193,7 +198,7 @@ class UVLF():
         """
         alphastar, betastar, log10Mcstar, log10epsstar, sigmaUV = params
         astroparams = zeus21.Astro_Parameters(self.UserParams, self.CosmoParams, epsstar=10**log10epsstar, 
-                                              Mc=10**log10Mcstar,alphastar=alphastar, betastar=betastar, sigmaUV = sigmaUV) 
+                                              Mc=10**log10Mcstar,alphastar=alphastar, betastar=betastar, sigmaUV = sigmaUV)
         return astroparams
 
     def get_fit(self, burn_in = None, exclude_unfit = True, excluded_params = []):
@@ -246,7 +251,7 @@ class UVLF():
     
         return np.delete(samples, exclude_indices, axis=1), best_fit, bounds, all_labels
 
-    def run_MCMC(self, Nsteps = 100000):
+    def run_MCMC(self, Nsteps = 100000, ICs = None):
         """
         Run MCMC, store the chain that's created
         Inputs:
@@ -257,7 +262,8 @@ class UVLF():
         self.sampler.reset()
         
         # Get ICs for running MCMC
-        ICs = self.generate_ICs()
+        if ICs is None:
+            ICs = self.generate_ICs_from_table()
 
         # Run MCMC with a progress bar
         _ = self.sampler.run_mcmc(ICs, Nsteps, progress = True)
@@ -297,7 +303,6 @@ def get_default_df():
     All supported parameters are included in this nested dictionary, including the following keys:
     'fit': when True, this will be fit with MCMC. When False, this value will be held fixed at the value provided under the 'value' key.
     'value': value to assign this parameter when 'fit' is False
-    'start': starting value for this parameter in the MCMC
     'lower': lower bound for the flat prior in MCMC
     'upper': upper bound for the flat prior in MCMC
     'label': label, in mathematical format, for plotting
@@ -306,18 +311,17 @@ def get_default_df():
     if 'fit' is labeled False; there is currently not support for using MCMC to fit parameters in a piecewise fashion. 
     """
     default_values = {
-        'alpha':   {'fit': True, 'value': 0.6, 'start': 0.6, 'lower': 0, 'upper': 4, 'label': r"$\alpha$"},
-        'dalphadz':{'fit': True, 'value': 0, 'start': 0.01, 'lower': -0.5, 'upper': 0.5, 'label': r"$d\alpha/dz$"},
-        'beta':    {'fit': True, 'value': -0.5, 'start': -0.5, 'lower': -1, 'upper': 0, 'label': r"$\beta$"},
-        'dbetadz': {'fit': True, 'value': 0, 'start': 0.01, 'lower': -0.5, 'upper': 1.5, 'label': r"$d\beta/dz$"},
-        'logMc':   {'fit': True, 'value': 12, 'start': 12, 'lower': 9, 'upper': 16, 'label': r'$\log(M_c)$'},
-        'dlogMcdz':{'fit': True, 'value': 0, 'start': 0.01, 'lower': -0.5, 'upper': 0.5, 'label': r'$d\log(M_c)/dz$'},
-        'loge':    {'fit': True, 'value': -0.5, 'start': -1, 'lower': -2.5, 'upper': 1, 'label': r"$\log(\epsilon_0)$"},
-        'dlogedz': {'fit': True, 'value': 0, 'start': 0.01, 'lower': -0.5, 'upper': 0.5, 'label': r'$d\log(\epsilon_0)/dz$'},
-        'sig':     {'fit': True, 'value': 0, 'start': 0.5, 'lower': 0, 'upper': 6, 'label': r'$\sigma_{\rm{UV}, M_c}$'},
-        'dsigdz':  {'fit': True, 'value': 0, 'start': 0.01, 'lower': -0.5, 'upper': 1, 'label': r'$d\sigma_{\rm{UV}}/dz$'},
-        'dsigdlogM':  {'fit': True, 'value': 0, 'start': 0.01, 'lower': -1, 'upper': 1.5, 
-                    'label': r'$d\sigma_{\rm{UV}}/d\log(M_{h})$'}
+        'alpha':   {'fit': True, 'value': 0.6, 'lower': 0, 'upper': 4, 'label': r"$\alpha$"},
+        'dalphadz':{'fit': True, 'value': 0,  'lower': -0.5, 'upper': 0.5, 'label': r"$d\alpha/dz$"},
+        'beta':    {'fit': True, 'value': -0.5,  'lower': -3, 'upper': 0, 'label': r"$\beta$"},
+        'dbetadz': {'fit': True, 'value': 0,  'lower': -1, 'upper': 1.5, 'label': r"$d\beta/dz$"},
+        'logMc':   {'fit': True, 'value': 12, 'lower': 9, 'upper': 16, 'label': r'$\log(M_c)$'},
+        'dlogMcdz':{'fit': True, 'value': 0,  'lower': -0.5, 'upper': 0.5, 'label': r'$d\log(M_c)/dz$'},
+        'loge':    {'fit': True, 'value': -0.5, 'lower': -4.5, 'upper': 0, 'label': r"$\log(\epsilon_0)$"},
+        'dlogedz': {'fit': True, 'value': 0,  'lower': -0.5, 'upper': 0.5, 'label': r'$d\log(\epsilon_0)/dz$'},
+        'sig':     {'fit': True, 'value': 0, 'lower': 0, 'upper': 6, 'label': r'$\sigma_{\rm{UV}, M_c}$'},
+        'dsigdz':  {'fit': True, 'value': 0,  'lower': -0.5, 'upper': 1, 'label': r'$d\sigma_{\rm{UV}}/dz$'},
+        'dsigdlogM':  {'fit': True, 'value': 0,  'lower': -2, 'upper': 3, 'label': r'$d\sigma_{\rm{UV}}/d\log(M_{h})$'}
     }
 
     return pd.DataFrame(default_values).T
@@ -340,7 +344,7 @@ def make_table(best_fits, param_labels, fit_labels, bounds):
                 print(
                     "Your best fit values are not within your 16th and 84th percentile upper and lower bounds. Take care when interpreting this table and consider broadening your priors."
                 )
-            df_fill.append([f'${bf}^{{+{round(bd[1]-bf,2)}}}_{{{round(bd[0]-bf,2)}}}$' for bf, bd in zip(best_fit, bound)])
+            df_fill.append([f'${bf}^{{+{max(round(bd[1]-bf,2),0)}}}_{{{min(round(bd[0]-bf,2),0)}}}$' for bf, bd in zip(best_fit, bound)])
         else:
             df_fill.append(best_fit)
 
@@ -348,3 +352,22 @@ def make_table(best_fits, param_labels, fit_labels, bounds):
     df.index = fit_labels
 
     return df.T
+
+def generate_ICs(lower_bounds, upper_bounds, nwalkers):
+    """
+    Generate initial conditions
+    Inputs: 
+        lower_bounds [1darray]: lower bounds for ICs
+        upper_bounds [1darray]: upper bounds for ICs
+        nwalkers [int]: number of walkers
+    Returns: 
+        ICs [array]: ICs to run MCMC with
+    """
+
+    ordered_ICs = np.linspace(lower_bounds, upper_bounds, nwalkers, dtype = 'float') 
+    # Need to set datatype or it won't work
+    rand_inds = np.random.rand(*ordered_ICs.shape).argsort(axis=0) # Shuffled indices (this is so that a walker that starts at a lower for a
+                                                        # given parameter doesn't also start at the lower bound for all other parameters)
+    ICs = np.take_along_axis(ordered_ICs,rand_inds,axis=0) # Apply the randomization
+
+    return ICs
