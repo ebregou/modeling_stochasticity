@@ -57,7 +57,7 @@ ev_fig = eplots.evolving_UVLF_fit(my_UVLF)
 ev_fig.savefig(f'{folder}/evolving_UVLF.png', bbox_inches = 'tight')
 
 # Parameter table
-table = eMCMC.make_table([best_fit], param_labels, ['best fit'], [bounds])
+table = eplots.make_table([best_fit], param_labels, ['best fit'], [bounds])
 dfi.export(table, f'{folder}/table.png', table_conversion = 'matplotlib', use_mathjax = True, dpi = 200)
 
 

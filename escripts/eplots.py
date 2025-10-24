@@ -18,6 +18,7 @@ import numpy as np
 import corner
 import math
 import zeus21
+import pandas as pd
 
 # Local packages
 from escripts import eMCMC
@@ -34,32 +35,7 @@ orange = hex_colors[4]
 green = hex_colors[5]
 periwinkle = hex_colors[6]
 labels = ['red', 'turquoise', 'yellow', 'navy', 'orange', 'green', 'periwinkle']
-        
-        
-    
-def plot_colors():
-    """
-    Plot the colors defined in my mplstyle sheet and print their names
-    This gives a visual representation of all the colors to make it easier to choose the best one.
-    """
-    # Create a figure to visualize the colors
-    fig, ax = plt.subplots(figsize=(8, 2))
-    ax.set_xlim(0, len(hex_colors))
-    ax.set_ylim(0, 1)
-    
-    # Plot each color as a rectangle
-    for i, (hex_color, label) in enumerate(zip(hex_colors, labels)):
-        ax.add_patch(plt.Rectangle((i, 0), 1, 1, color=hex_color))
-        ax.text(i + 0.5, -0.2, hex_color, ha='center', va='top', fontsize=15, color='black', rotation=45)
-        print(f'{label}: {hex_color}')
-    
-    # Formatting
-    ax.set_xticks([])
-    ax.set_yticks([])
-    ax.set_frame_on(False)
-    
-    plt.show()
-    return
+
 
 def percent_diff(x, y0, y1, labels, other_data = None):
     """
@@ -91,10 +67,11 @@ def percent_diff(x, y0, y1, labels, other_data = None):
 
     return fig, ax
 
-def make_corner(my_UVLF, true_vals = None, title = '', burn_in = None, excluded_params = []):
+def make_corner(my_UVLF, backend_file = None, true_vals = None, title = '', burn_in = None, excluded_params = []):
     """
     Plot a corner plot, adding true values if any are given.
     Inputs:
+        backend_file [str]: .h5 file containing previously saved chain
         samples [array]: samples from the MCMC chain
         labels [list of strs]: label for each sample
         true_vals [1darray]: optional true values for each parameter. Don't include true values for parameters in excluded_params
@@ -106,7 +83,7 @@ def make_corner(my_UVLF, true_vals = None, title = '', burn_in = None, excluded_
     """
     
     # Get samples & parameter labels, excluding parameters that weren't fit
-    samples, best_fit, _, labels = my_UVLF.get_fit(exclude_unfit = True, burn_in = burn_in, excluded_params = excluded_params) 
+    samples, best_fit, _, labels = my_UVLF.get_fit(backend_file, exclude_unfit = True, burn_in = burn_in, excluded_params = excluded_params) 
     
     
     if true_vals is None:
@@ -118,12 +95,13 @@ def make_corner(my_UVLF, true_vals = None, title = '', burn_in = None, excluded_
         
     return corner_plot
 
-def evolving_UVLF_fit(my_UVLF, z_plot = None, plot_from_chain = True, nsamples = 100, comparison_fits = [], comparison_labels = [], ncols = 3,
-                           title = 'UVLF data vs. MCMC fit', burn_in = None):
+def evolving_UVLF_fit(my_UVLF, backend_file = None, z_plot = None, plot_from_chain = True, nsamples = 100, comparison_fits = [], comparison_labels = [], 
+                      ncols = 3, title = 'UVLF data vs. MCMC fit', burn_in = None):
     """
     Plot the UVLF at different redshifts
     Inputs:
         my_UVLF: eMCMC UVLF object
+        backend_file [str]: .h5 file containing previously saved chain
         z_plot [list of floats]: redshifts to plot, or leave as None if you want to plot all of them
         plot_from_chain [bool]: whether or not to plot the best fit and samples from the chain stored in my_UVLF. If False, only comparison_fits
                              parameter values will be plotted (so you can quickly check different fits this way).
@@ -157,7 +135,7 @@ def evolving_UVLF_fit(my_UVLF, z_plot = None, plot_from_chain = True, nsamples =
 
     # Get samples & best fit
     if plot_from_chain:
-        samples, best_fit, _, _= my_UVLF.get_fit(exclude_unfit = True, burn_in = burn_in)
+        samples, best_fit, _, _= my_UVLF.get_fit(backend_file = backend_file, exclude_unfit = True, burn_in = burn_in)
     
     chi2_comparison = [-2*my_UVLF.log_like(fit) for fit in comparison_fits]
 
@@ -202,10 +180,11 @@ def evolving_UVLF_fit(my_UVLF, z_plot = None, plot_from_chain = True, nsamples =
                        label = fr'{label}, $\chi^2 = {chi2_fit:.0f}$', linestyle = ls, zorder = 1)
 
         # Plot data
-        for dat, fmt in zip(zbin, ['o', 'v', 's']):
+        for dat, fmt in zip(zbin, ['o', 'v', 's', 'D', '^']):
             _, _, xdat, ydat, yerr_upper, yerr_lower, xerr = edata.decompose(dat)
-            ax.scatter(xdat, np.log10(ydat), marker = fmt, label = dat[7], c = navy, s = 100)
-            
+            ax.scatter(xdat, np.log10(ydat), marker = fmt, label = dat[7], c = navy, s = 85)
+            ax.vlines(xdat, np.clip(np.log10(ydat - yerr_lower), -100, 100), np.clip(np.log10(ydat + yerr_upper), -100, 100), ls = '-', 
+                      colors = navy, linewidth =3)
 
         ax.invert_xaxis()
         ax.set_ylim(ylo, yhi)
@@ -248,47 +227,6 @@ def evolving_UVLF_fit(my_UVLF, z_plot = None, plot_from_chain = True, nsamples =
     
     return fig
 
-def interpolate_colors(hex_colors, total_steps, show_plot = False):
-    """
-    Create a step-wise gradient between each color in the colors list. There are [steps_between] colors between each color in the list.
-    Inputs:
-        hex_colors [list]: colors in hexadecimal format
-        total_steps [int]: number of steps in the gradient
-        show_plot [bool]: whether or not to show the gradient as a plot
-    Returns:
-        interpolated_colors [list]: a list of all of the colors that make up the stepwise gradient
-        fig [matplotlib figure]: visualization of the gradient
-    """
-    # Convert hex colors to RGB
-    rgb_colors = [np.array(mplcolors.to_rgb(color)) for color in hex_colors]
-    interpolated_colors = []
-
-    steps_between = math.ceil((total_steps-len(hex_colors)) / (len(hex_colors)-1)) # calculate how many colors in between each specified color
-    # to end up with the specified number of total colors (or more)
-    
-    # Interpolate between each pair of colors
-    for i in range(len(rgb_colors) - 1):
-        start = rgb_colors[i]
-        end = rgb_colors[i + 1]
-        for t in np.linspace(0, 1, steps_between + 2)[:-1]:  # omit the last to avoid duplicates
-            interpolated = (1 - t) * start + t * end
-            interpolated_colors.append(mplcolors.to_hex(interpolated))
-    
-    # Append the last color explicitly
-    interpolated_colors.append(hex_colors[-1])
-
-    if show_plot:
-        fig, ax = plt.subplots(figsize=(12,2))
-        ax.set_xlim(0, len(interpolated_colors))
-        ax.set_ylim(0, 1)
-        for i, color in enumerate(interpolated_colors):
-            ax.add_patch(plt.Rectangle((i, 0), 1, 1, color=color))
-            ax.text(i + 0.5, -0.2, color, ha='center', va='top', fontsize=15, color='black', rotation=45)
-        
-        return interpolated_colors, fig
-    else:
-        return interpolated_colors
-
 def MUV_distribution(my_UVLF, zs, param_values, Mhtab):
     """
     Plot P(MUV|Mh) for two different redshifts given a set of UVLF parameters
@@ -312,9 +250,7 @@ def MUV_distribution(my_UVLF, zs, param_values, Mhtab):
     my_UVLF.HMFintclass.Mhtab = 10**Mhtab # Set the UVLF table of halo masses to the input value
 
     # Create gradient for color-coding curves based on corresponding halo mass
-    cmap = LinearSegmentedColormap.from_list("custom", [red, navy]) 
-    dM = Mhtab[1]-Mhtab[0] # Separation between each halo mass
-    norm = BoundaryNorm(np.arange(min(Mhtab), max(Mhtab)+dM, dM), cmap.N)
+    cmap, sm, boundaries = create_custom_colorbar([periwinkle, red], Mhtab)
     
     for z, ls in zip(zs, ['-', '--']): # Plot curves for each redshift
         params = my_UVLF.time_evolution(param_values, z) # Calculate how parameters evolve with redshift
@@ -334,9 +270,6 @@ def MUV_distribution(my_UVLF, zs, param_values, Mhtab):
             ax.plot(MUV_range, P, color = color, ls = ls)
 
     # Color bar things:
-    boundaries = np.arange(Mhtab.min()-(dM/2), Mhtab.max()+(1.5*dM), dM) # set bin edges between mass values
-    norm = BoundaryNorm(boundaries, cmap.N)
-    sm = ScalarMappable(cmap=cmap, norm=norm)
     cbar = fig.colorbar(sm, ax=ax, boundaries=boundaries, ticks=Mhtab, aspect = 14)
     cbar.set_label(r'$\log_{10}{M_h}$')
 
@@ -347,11 +280,112 @@ def MUV_distribution(my_UVLF, zs, param_values, Mhtab):
 
     return fig
 
+def make_table(best_fits, param_labels, fit_labels, bounds):
+    """
+    Make a table to compare best fit values of parameters
+    Inputs:
+        best_fits [list of lists]: list of best fit parameters
+        param_labels [list of strs]: names of parameters (rows of the table)
+        fit_labels [list]: names of each type of fit (columns of the table)
+        bounds [list of Nx2 arrays]: list of arrays with col1 = lower bound, col2 = upper bound on the best fit parameters
+    Outputs:
+        dataframe table with labeled parameters for comparison
+    """
+    df_fill = []
+    for best_fit, bound in zip(best_fits, bounds):
+        if bound is not None:
+            if any(bound[:,1]-best_fit < 0) or any(bound[:,0]-best_fit > 0): # Check that the bounds make sense
+                print(
+                    "Your best fit values are not within your 16th and 84th percentile upper and lower bounds. Take care when interpreting this table and consider broadening your priors."
+                )
+            df_fill.append([f'${bf}^{{+{max(round(bd[1]-bf,2),0)}}}_{{{min(round(bd[0]-bf,2),0)}}}$' for bf, bd in zip(best_fit, bound)])
+        else:
+            df_fill.append(best_fit)
+
+    df = pd.DataFrame(df_fill, columns = param_labels)
+    df.index = fit_labels
+
+    return df.T
+
+# Helper functions------------------------------------------------------------------------------
+
+def create_custom_colorbar(color_list, data):
+    cmap = LinearSegmentedColormap.from_list("custom", color_list)
+    dx = data[1]-data[0] # Separation between data in the list
+    norm = BoundaryNorm(np.arange(min(data), max(data)+dx, dx), cmap.N)
+
+    boundaries = np.arange(min(data)-(dx/2), max(data)+(1.5*dx), dx) # set bin edges between values
+    norm = BoundaryNorm(boundaries, cmap.N)
+    sm = ScalarMappable(cmap=cmap, norm=norm)
+
+    return cmap, sm, boundaries
+
 def custom_percent_formatter(x, pos):
     """
     Format a number as a percentage. Helper function for percent_diff_plot.
     """
     return f"{x * 100:.1f}%"
+
+def plot_colors():
+    """
+    Plot the colors defined in my mplstyle sheet and print their names
+    This gives a visual representation of all the colors to make it easier to choose the best one.
+    """
+    # Create a figure to visualize the colors
+    fig, ax = plt.subplots(figsize=(8, 2))
+    ax.set_xlim(0, len(hex_colors))
+    ax.set_ylim(0, 1)
+    
+    # Plot each color as a rectangle
+    for i, (hex_color, label) in enumerate(zip(hex_colors, labels)):
+        ax.add_patch(plt.Rectangle((i, 0), 1, 1, color=hex_color))
+        ax.text(i + 0.5, -0.2, hex_color, ha='center', va='top', fontsize=15, color='black', rotation=45)
+        print(f'{label}: {hex_color}')
+    
+    # Formatting
+    ax.set_xticks([])
+    ax.set_yticks([])
+    ax.set_frame_on(False)
+    
+    plt.show()
+    return
+
+def interpolate_colors(hex_colors, total_steps):
+    """
+    Plot a step-wise gradient between each color in the colors list. There are [steps_between] colors between each color in the list.
+    Inputs:
+        hex_colors [list]: colors in hexadecimal format
+        total_steps [int]: number of steps in the gradient
+    Returns:
+        interpolated_colors [list]: a list of all of the colors that make up the stepwise gradient
+        fig [matplotlib figure]: visualization of the gradient
+    """
+    # Convert hex colors to RGB
+    rgb_colors = [np.array(mplcolors.to_rgb(color)) for color in hex_colors]
+    interpolated_colors = []
+
+    steps_between = math.ceil((total_steps-len(hex_colors)) / (len(hex_colors)-1)) # calculate how many colors in between each specified color
+    # to end up with the specified number of total colors (or more)
+    
+    # Interpolate between each pair of colors
+    for i in range(len(rgb_colors) - 1):
+        start = rgb_colors[i]
+        end = rgb_colors[i + 1]
+        for t in np.linspace(0, 1, steps_between + 2)[:-1]:  # omit the last to avoid duplicates
+            interpolated = (1 - t) * start + t * end
+            interpolated_colors.append(mplcolors.to_hex(interpolated))
+    
+    # Append the last color explicitly
+    interpolated_colors.append(hex_colors[-1])
+
+    fig, ax = plt.subplots(figsize=(12,2))
+    ax.set_xlim(0, len(interpolated_colors))
+    ax.set_ylim(0, 1)
+    for i, color in enumerate(interpolated_colors):
+        ax.add_patch(plt.Rectangle((i, 0), 1, 1, color=color))
+        ax.text(i + 0.5, -0.2, color, ha='center', va='top', fontsize=15, color='black', rotation=45)
+        
+    return interpolated_colors, fig
 
 class HandlerStackedLine(HandlerLine2D): # Inherits from the HandlerLine2D class in matplotlib
     """
@@ -364,3 +398,5 @@ class HandlerStackedLine(HandlerLine2D): # Inherits from the HandlerLine2D class
         # Override the typical create_artists function in HandlerLine2D; use this one instead
         return [Line2D([xdescent, xdescent + width], [ydescent + (i-0.3) * 6] * 2, color=self.colors[i], transform=trans)
                 for i in range(len(self.colors))]
+    
+    

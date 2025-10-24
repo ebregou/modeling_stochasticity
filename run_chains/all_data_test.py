@@ -4,25 +4,23 @@ from escripts import edata
 import os
 import dataframe_image as dfi
 
-# Describe how this run has been modified from a standard one
-"""
-Only including redshifts 10, 11, and 12.5
-Got rid of redshift evolution
-Fixed log(Mc) & beta to the values preferred at low z
-"""
-
 # Name this run
-run_name = 'z=10+_only_vary_sigma'
-
-# Initialize parameters
-params = eMCMC.build_param_data({'dsigdz': {'fit': False, 'value': 0}, 'dalphadz': {'fit': False, 'value':0}, 'dbetadz': {'fit':False, 'value':0}, 'dlogedz': {'fit':False, 'value':0}, 'dlogMcdz':{'fit':False, 'value':0}, 'alpha': {'fit': False, 'value': 0.71}, 'beta': {'fit': False, 'value': -0.54}, 'logMc': {'fit': False, 'value': 11.79}, 'loge': {'fit': False, 'value': -0.81}})
+run_name = 'all_data_test'
 
 # Get data
-file_names = ['/Users/eb35267/Desktop/code/home/data/Bouwens2021_fixed.txt', 
+file_names = ['/Users/eb35267/Desktop/code/home/data/Bouwens2021_low_z.txt',
               '/Users/eb35267/Desktop/code/home/data/Donnan24_GAL.txt',
-             '/Users/eb35267/Desktop/code/home/data/Mcleod_24.txt']
-data_labels = ['Bouwens+21', 'Donnan+24', 'McLeod+24']
-sorted_data = edata.get_sorted(file_names, data_labels, include_zs= [10, 11, 12.5])
+             '/Users/eb35267/Desktop/code/home/data/Mcleod_24.txt',
+             '/Users/eb35267/Desktop/code/home/data/Adams+25.txt',
+             '/Users/eb35267/Desktop/code/home/data/Weibel+25.txt']
+data_labels = ['Bouwens+21', 'Donnan+24', 'McLeod+24', 'Adams+25', 'Weibel+25']
+sorted_data = edata.get_sorted(file_names, data_labels)
+
+# Initialize parameters
+params = params = eMCMC.build_param_data({'dsigdlogM': {}})
+
+
+#---------------------------------------------------------------------------------------------------------------------------------------------
 
 # Create backend file
 folder = f'/Users/eb35267/Desktop/code/figures/{run_name}'

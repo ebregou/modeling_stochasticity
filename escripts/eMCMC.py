@@ -201,10 +201,11 @@ class UVLF():
                                               Mc=10**log10Mcstar,alphastar=alphastar, betastar=betastar, sigmaUV = sigmaUV)
         return astroparams
 
-    def get_fit(self, burn_in = None, exclude_unfit = True, excluded_params = []):
+    def get_fit(self, backend_file = None, burn_in = None, exclude_unfit = True, excluded_params = []):
         """
         Get samples and best fit values from MCMC samples (or, if the parameter is not fit, return the default value).
         Inputs:
+            backend_file [str]: .h5 file containing previously saved chain
             burn_in [int]: number of steps to discard as burnin
             exclude_unfit [bool]: whether or not to exclude parameters that are set by default (and not by the MCMC chain) 
             excluded_params [list]: any parameters you don't want to return
@@ -214,13 +215,20 @@ class UVLF():
             bounds [Nx2 array]: Upper and lower bounds on parameter values that correspond to the 16th & 84th percentile 
             all_labels [list]: TeX representation of parameters, used with make_table()
         """
-
+        print(backend_file)
         if burn_in is None:
             burn_in = 8000
         
-        samples = self.sampler.get_chain(discard = burn_in, flat=True)
-        best_fit_data = samples[np.argmax(self.sampler.get_log_prob(discard=burn_in, flat=True))] # Get highest probability sample
+        if backend_file is None:
+            samples = self.sampler.get_chain(discard = burn_in, flat=True)
+            log_prob = self.sampler.get_log_prob(discard=burn_in, flat=True)
+        else:
+            reader = emcee.backends.HDFBackend(backend_file)
+            samples = reader.get_chain(discard = burn_in, flat=True)
+            log_prob = reader.get_log_prob(discard=burn_in, flat = True)
 
+        # Get highest probability sample
+        best_fit_data = samples[np.argmax(log_prob)] 
         i = 0
         best_fit = []
         all_labels = []
@@ -325,33 +333,6 @@ def get_default_df():
     }
 
     return pd.DataFrame(default_values).T
-
-def make_table(best_fits, param_labels, fit_labels, bounds):
-    """
-    Make a table to compare best fit values of parameters
-    Inputs:
-        best_fits [list of lists]: list of best fit parameters
-        param_labels [list of strs]: names of parameters (rows of the table)
-        fit_labels [list]: names of each type of fit (columns of the table)
-        bounds [list of Nx2 arrays]: list of arrays with col1 = lower bound, col2 = upper bound on the best fit parameters
-    Outputs:
-        dataframe table with labeled parameters for comparison
-    """
-    df_fill = []
-    for best_fit, bound in zip(best_fits, bounds):
-        if bounds is not None: # Format the parameters with +/-
-            if any(bound[:,1]-best_fit < 0) or any(bound[:,0]-best_fit > 0): # Check that the bounds make sense
-                print(
-                    "Your best fit values are not within your 16th and 84th percentile upper and lower bounds. Take care when interpreting this table and consider broadening your priors."
-                )
-            df_fill.append([f'${bf}^{{+{max(round(bd[1]-bf,2),0)}}}_{{{min(round(bd[0]-bf,2),0)}}}$' for bf, bd in zip(best_fit, bound)])
-        else:
-            df_fill.append(best_fit)
-
-    df = pd.DataFrame(df_fill, columns = param_labels)
-    df.index = fit_labels
-
-    return df.T
 
 def generate_ICs(lower_bounds, upper_bounds, nwalkers):
     """

@@ -5,17 +5,19 @@ import os
 import dataframe_image as dfi
 
 # Name this run
-run_name = 'just_hst_data'
+run_name = 'replicate_muñoz23_hst'
 
 # Get data
-file_names = ['/Users/eb35267/Desktop/code/home/data/Bouwens2021_fixed.txt', 
-              '/Users/eb35267/Desktop/code/home/data/Donnan24_GAL.txt',
-             '/Users/eb35267/Desktop/code/home/data/Mcleod_24.txt']
-data_labels = ['Bouwens+21', 'Donnan+24', 'McLeod+24']
-sorted_data = edata.get_sorted(file_names, data_labels, include_zs= [4, 5, 6, 7, 8, 9, 10])
+file_names = ['/Users/eb35267/Desktop/code/home/data/Bouwens2021_fixed.txt']
+data_labels = ['Bouwens+21']
+sorted_data = edata.get_sorted(file_names, data_labels)
 
 # Initialize parameters
-params = eMCMC.build_param_data({'dsigdz': {'fit': False, 'value': 0}, 'dalphadz': {'fit': False, 'value':0}, 'dbetadz': {'fit':False, 'value':0}, 'dlogedz': {'fit':False, 'value':0}, 'dlogMcdz':{'fit':False, 'value':0}})
+params = params = eMCMC.build_param_data({'dsigdlogM': {'fit':False, 'value':0}})
+
+# Add Muñoz+23 fits for comparison
+munoz_fit_vary_eps = [0.61, -0.01, -1.91, 0.08, 12.03, 0.03, '-', '-', 0.65, -0.03]
+munoz_fit_vary_sig = [0.74, 0.03, -1.76, -0.02, 11.84, -0.02, -1.08, -0.07, '-', '-']
 
 
 #---------------------------------------------------------------------------------------------------------------------------------------------
@@ -46,7 +48,9 @@ ev_fig = eplots.evolving_UVLF_fit(my_UVLF)
 ev_fig.savefig(f'{folder}/evolving_UVLF.png', bbox_inches = 'tight')
 
 # Parameter table
-table = eplots.make_table([best_fit], param_labels, ['best fit'], [bounds])
+table = eplots.make_table([best_fit, munoz_fit_vary_eps, munoz_fit_vary_sig], param_labels, ['best fit', r'Muñoz+23 piecewise $\epsilon_0$', 
+                                                                                             r'Muñoz+23 piecewise $\sigma_{\rm{UV}}$'], 
+                          [bounds])
 dfi.export(table, f'{folder}/table.png', table_conversion = 'matplotlib', use_mathjax = True, dpi = 200)
 
 
