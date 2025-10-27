@@ -178,6 +178,7 @@ def evolving_UVLF_fit(my_UVLF, backend_file = None, z_plot = None, plot_from_cha
                                         ['solid', 'dashdot', 'dashed', 'dotted']):
             ax.plot(plot_xdat, np.log10(my_UVLF.UVLF_wrapper(zdat,zerr,plot_xdat,plot_xerr, fit)), color = color, 
                        label = fr'{label}, $\chi^2 = {chi2_fit:.0f}$', linestyle = ls, zorder = 1)
+            print(np.log10(my_UVLF.UVLF_wrapper(zdat,zerr,plot_xdat,plot_xerr, fit)))
 
         # Plot data
         for dat, fmt in zip(zbin, ['o', 'v', 's', 'D', '^']):

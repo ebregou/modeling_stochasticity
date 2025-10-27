@@ -4,28 +4,24 @@ from escripts import edata
 import os
 import dataframe_image as dfi
 
-# This run only included HST data up to z = 7
-
 # Name this run
-run_name = 'all_data_test'
+run_name = 'remove_overlap'
 
 # Get data
 file_names = ['/Users/eb35267/Desktop/code/home/data/Bouwens2021_low_z.txt',
               '/Users/eb35267/Desktop/code/home/data/Donnan24_GAL.txt',
-             '/Users/eb35267/Desktop/code/home/data/Mcleod_24.txt',
-             '/Users/eb35267/Desktop/code/home/data/Adams+25.txt',
-             '/Users/eb35267/Desktop/code/home/data/Weibel+25.txt']
+             '/Users/eb35267/Desktop/code/home/data/Weibel+25_just_13.txt']
 data_labels = ['Bouwens+21', 'Donnan+24', 'McLeod+24', 'Adams+25', 'Weibel+25']
 sorted_data = edata.get_sorted(file_names, data_labels)
 
 # Initialize parameters
-params = params = eMCMC.build_param_data({'dsigdlogM': {}})
+params = params = eMCMC.build_param_data({})
 
 
 #---------------------------------------------------------------------------------------------------------------------------------------------
 
 # Create backend file
-folder = f'/Users/eb35267/Desktop/code/figures/{run_name}'
+folder = f'/Users/eb35267/Desktop/code/home/figures/{run_name}'
 if not os.path.exists(folder):
     os.makedirs(folder)
 else:
