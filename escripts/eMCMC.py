@@ -146,7 +146,7 @@ class UVLF():
             paramvector [1darray]: parameters
             zcenter [float]: center redshift value for binned UVLF data
         Returns:
-            [log10epsstar, log10Mcstar, alphastar, betastar, sigmaUV]: values of these parameters that match the given redshift
+            [alphastar, betastar, log10epsstar, log10Mcstar, sigmaUV]: values of these parameters that match the given redshift
         """
 
         # Deal with piecewise parameters if necessary
@@ -170,6 +170,9 @@ class UVLF():
         param_base = full_paramvector[base_idx]
         time_derivs = full_paramvector[base_idx + 1]
         param_values = param_base + (time_derivs*(zcenter-self.Astro_Parameters._zpivot))
+        # Limit alpha to be positive and beta to be negative regardless of redshift evolution to preserve the double power law structure of SFE
+        param_values[2] = max(param_values[2], 0) # alpha should be positive
+        param_values[3] = min(param_values[3], 0) # beta should be negative
 
         # Apply mass dependence of sigma
         sig = param_values[-1]
@@ -215,8 +218,7 @@ class UVLF():
             bounds [Nx2 array]: Upper and lower bounds on parameter values that correspond to the 16th & 84th percentile 
             all_labels [list]: TeX representation of parameters, used with make_table()
         """
-        print(backend_file)
-        if burn_in is None:
+        if burn_in is None: # Standard value of burn in
             burn_in = 8000
         
         if backend_file is None:
@@ -228,7 +230,7 @@ class UVLF():
             log_prob = reader.get_log_prob(discard=burn_in, flat = True)
 
         # Get highest probability sample
-        best_fit_data = samples[np.argmax(log_prob)] 
+        best_fit_data = samples[np.argmax(log_prob)]
         i = 0
         best_fit = []
         all_labels = []
@@ -237,7 +239,8 @@ class UVLF():
         for index, key in enumerate(self.param_data.T.keys()):
             if key in excluded_params:
                 if index not in self.notfit: # Make sure you don't double count if the parameter wasn't fit anyways
-                    exclude_indices.append(index)
+                    exclude_indices.append(i)
+                    i+=1
                 continue
             else: 
                 if self.param_data.T[key].fit: # Get best fit value if the parameter is fit by MCMC
@@ -248,7 +251,6 @@ class UVLF():
                         continue
                     else:
                         value = self.param_data.T[key].value
-            
             best_fit.append(round(value, 2))
             all_labels.append(self.param_data.T[key].label)
 
@@ -256,7 +258,7 @@ class UVLF():
         bounds = np.zeros((len(samples[0]),2))
         for i in range(len(samples[0])):
             bounds[i] = np.percentile(samples[:, i], [16, 84])
-    
+
         return np.delete(samples, exclude_indices, axis=1), best_fit, bounds, all_labels
 
     def run_MCMC(self, Nsteps = 100000, ICs = None):
@@ -325,8 +327,8 @@ def get_default_df():
         'dbetadz': {'fit': True, 'value': 0,  'lower': -1, 'upper': 1.5, 'label': r"$d\beta/dz$"},
         'logMc':   {'fit': True, 'value': 12, 'lower': 9, 'upper': 16, 'label': r'$\log(M_c)$'},
         'dlogMcdz':{'fit': True, 'value': 0,  'lower': -0.5, 'upper': 0.5, 'label': r'$d\log(M_c)/dz$'},
-        'loge':    {'fit': True, 'value': -0.5, 'lower': -4.5, 'upper': 0, 'label': r"$\log(\epsilon_0)$"},
-        'dlogedz': {'fit': True, 'value': 0,  'lower': -0.5, 'upper': 0.5, 'label': r'$d\log(\epsilon_0)/dz$'},
+        'loge':    {'fit': True, 'value': -0.5, 'lower': -4.5, 'upper': 0, 'label': r"$\log(\epsilon_{\star})$"},
+        'dlogedz': {'fit': True, 'value': 0,  'lower': -0.5, 'upper': 0.5, 'label': r'$d\log(\epsilon_{\star})/dz$'},
         'sig':     {'fit': True, 'value': 0, 'lower': 0, 'upper': 6, 'label': r'$\sigma_{\rm{UV}, M_c}$'},
         'dsigdz':  {'fit': True, 'value': 0,  'lower': -0.5, 'upper': 1, 'label': r'$d\sigma_{\rm{UV}}/dz$'},
         'dsigdlogM':  {'fit': True, 'value': 0,  'lower': -2, 'upper': 3, 'label': r'$d\sigma_{\rm{UV}}/d\log(M_{h})$'}

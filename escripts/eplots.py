@@ -6,7 +6,8 @@ import matplotlib as mpl
 from matplotlib import pyplot as plt
 plt.style.use('/Users/eb35267/Desktop/code/mpl_style/estyle.mplstyle')
 plt.style.use('/Users/eb35267/Desktop/code/mpl_style/notebook_style.mplstyle')
-import matplotlib.ticker as ticker
+#plt.style.use('/Users/eb35267/Desktop/code/mpl_style/pres_style.mplstyle')
+from matplotlib import ticker
 from matplotlib import colors as mplcolors
 from matplotlib.colors import LinearSegmentedColormap
 from matplotlib.colors import BoundaryNorm
@@ -19,6 +20,7 @@ import corner
 import math
 import zeus21
 import pandas as pd
+import dataframe_image as dfi
 
 # Local packages
 from escripts import eMCMC
@@ -67,7 +69,8 @@ def percent_diff(x, y0, y1, labels, other_data = None):
 
     return fig, ax
 
-def make_corner(my_UVLF, backend_file = None, true_vals = None, title = '', burn_in = None, excluded_params = []):
+def make_corner(my_UVLF, backend_file = None, true_vals = None, title = '', burn_in = None, excluded_params = [], 
+                sample_color = red, truth_color = turquoise):
     """
     Plot a corner plot, adding true values if any are given.
     Inputs:
@@ -78,31 +81,34 @@ def make_corner(my_UVLF, backend_file = None, true_vals = None, title = '', burn
         title [str]: plot title
         burn_in [int]: number of samples to discard as burnin
         excluded_params [list]: list of parameters to exclude from the plot
+        sample_color [str]: color for the samples
+        truth_color [str]: color to plot the best fit
     Returns:
         corner_plot [matplotlib figure]: corner plot showing the values and covariances of each parameter, and, optionally, their true values
     """
     
     # Get samples & parameter labels, excluding parameters that weren't fit
-    samples, best_fit, _, labels = my_UVLF.get_fit(backend_file, exclude_unfit = True, burn_in = burn_in, excluded_params = excluded_params) 
+    samples, _, _, labels = my_UVLF.get_fit(backend_file, exclude_unfit = True, burn_in = burn_in, excluded_params = excluded_params) 
     
-    
+
     if true_vals is None:
-        corner_plot = corner.corner(samples, labels=labels, color = red) 
+        corner_plot = corner.corner(samples, labels=labels, color = sample_color, plot_contours = True) 
     else:
-        corner_plot = corner.corner(samples, labels=labels, color = red, truths = true_vals, truth_color= turquoise)
+        corner_plot = corner.corner(samples, labels=labels, color = sample_color, truths = true_vals, 
+                                    truth_color= truth_color, plot_contours = True)
 
     corner_plot.suptitle(title, y = 1.02)
         
     return corner_plot
 
-def evolving_UVLF_fit(my_UVLF, backend_file = None, z_plot = None, plot_from_chain = True, nsamples = 100, comparison_fits = [], comparison_labels = [], 
+def evolving_UVLF_fit(my_UVLF, backend_file = None, include_zs = None, plot_from_chain = True, nsamples = 100, comparison_fits = [], comparison_labels = [], 
                       ncols = 3, title = 'UVLF data vs. MCMC fit', burn_in = None):
     """
     Plot the UVLF at different redshifts
     Inputs:
         my_UVLF: eMCMC UVLF object
         backend_file [str]: .h5 file containing previously saved chain
-        z_plot [list of floats]: redshifts to plot, or leave as None if you want to plot all of them
+        include_zs [list of floats]: redshifts to plot, or leave as None if you want to plot all of them
         plot_from_chain [bool]: whether or not to plot the best fit and samples from the chain stored in my_UVLF. If False, only comparison_fits
                              parameter values will be plotted (so you can quickly check different fits this way).
         nsamples [int]: number of samples from the MCMC chain you want to appear in addition to the best fit
@@ -116,22 +122,22 @@ def evolving_UVLF_fit(my_UVLF, backend_file = None, z_plot = None, plot_from_cha
     """
     data_z = [dat[0] for dat in my_UVLF.data] # Get the redshifts that correspond to the input data
     
-    if z_plot is None: # Plot every redshift if none are specified.
-        z_plot = data_z
+    if include_zs is None: # Plot every redshift if none are specified.
+        include_zs = data_z
 
-    assert all([z in data_z for z in z_plot]), 'The redshifts specified don\'t match the redshifts of the data'
+    assert all([z in data_z for z in include_zs]), 'The redshifts specified don\'t match the redshifts of the data'
 
     if len(comparison_fits) > 0:
         assert len(comparison_labels) > 0, 'If specifying comparison fits you must also give their labels'
 
     # Figure out how many subplots to make
-    nz = len(z_plot)
+    nz = len(include_zs)
     fig = plt.figure()
     gs = GridSpec(math.ceil((nz+1)/ncols), ncols, figure=fig)
     
     # Adjust size & spacing
-    fig.set_size_inches(3*ncols, 3*math.ceil((nz+1)/ncols))
-    plt.subplots_adjust(wspace = 0, hspace = 0.3)
+    fig.set_size_inches(4*ncols, 4*math.ceil((nz+1)/ncols))
+    plt.subplots_adjust(wspace = 0, hspace = 0.4)
 
     # Get samples & best fit
     if plot_from_chain:
@@ -143,14 +149,17 @@ def evolving_UVLF_fit(my_UVLF, backend_file = None, z_plot = None, plot_from_cha
     ylo, yhi = np.log10(min([min(dat[3]) for dat in my_UVLF.data]))-0.25, np.log10(max([max(dat[3]) for dat in my_UVLF.data]))+0.25 
 
     # Get the x grid to evaluate the UVLF over
-    plot_xdat, plot_xerr = my_UVLF.data[0][2], my_UVLF.data[0][5] # Use the lowest redshift MUV centers & bins as the grid to calculate the
-                                                                # theoretical UVLF on
+    # Get the biggest possible grid of x data to plot over
+    plot_xdat, inds = np.unique(np.concatenate([data[2] for data in my_UVLF.data]), return_index = True) 
+    # Get the corresponding x error
+    plot_xerr = np.concatenate([data[6] for data in my_UVLF.data])[inds]
+
     i = 0 # Can't use enumerate because we're allowing for the possibility that the user will want to skip certain z bins 
     for zbin in my_UVLF.sorted_data:
     
-        zdat, zerr = zbin[0][0], zbin[0][1]
+        zdat, zerr = zbin[0][0], np.concatenate([dat[1] for dat in zbin])[0]
 
-        if zdat not in z_plot:
+        if zdat not in include_zs:
             print(f'Skipping $z={zdat}$')
             continue
 
@@ -169,29 +178,30 @@ def evolving_UVLF_fit(my_UVLF, backend_file = None, z_plot = None, plot_from_cha
             # Plot best fit
             chi2 = -2* my_UVLF.log_like(best_fit)
             ax.plot(plot_xdat, np.log10(my_UVLF.UVLF_wrapper(zdat, zerr, plot_xdat, plot_xerr, best_fit)), color = red, linestyle = '-', 
-                                           zorder = 0, label = fr'best fit, $\chi^2 = {chi2:.0f}$')
+                                           zorder = 0, label = fr'best fit, $\chi^2 = {chi2:.0f}$', lw = 5)
             
-            ax.plot([0], [0], color = red, alpha = 0.5, label = 'sampled fits', linestyle = '-') # Create the label for the samples
+            ax.plot([0], [0], color = red, alpha = 0.1, label = 'sampled fits', linestyle = '-', lw = 5) # Create the label for the samples
 
         # Plot comparison fits
         for fit, chi2_fit, label, color, ls in zip(comparison_fits, chi2_comparison, comparison_labels, [turquoise, yellow, orange, green], 
                                         ['solid', 'dashdot', 'dashed', 'dotted']):
             ax.plot(plot_xdat, np.log10(my_UVLF.UVLF_wrapper(zdat,zerr,plot_xdat,plot_xerr, fit)), color = color, 
                        label = fr'{label}, $\chi^2 = {chi2_fit:.0f}$', linestyle = ls, zorder = 1)
-            print(np.log10(my_UVLF.UVLF_wrapper(zdat,zerr,plot_xdat,plot_xerr, fit)))
 
         # Plot data
         for dat, fmt in zip(zbin, ['o', 'v', 's', 'D', '^']):
             _, _, xdat, ydat, yerr_upper, yerr_lower, xerr = edata.decompose(dat)
-            ax.scatter(xdat, np.log10(ydat), marker = fmt, label = dat[7], c = navy, s = 85)
+            ax.scatter(xdat, np.log10(ydat), marker = fmt, label = dat[7], c = navy, s = 180)
             ax.vlines(xdat, np.clip(np.log10(ydat - yerr_lower), -100, 100), np.clip(np.log10(ydat + yerr_upper), -100, 100), ls = '-', 
-                      colors = navy, linewidth =3)
+                      colors = navy, linewidth =6)
 
         ax.invert_xaxis()
         ax.set_ylim(ylo, yhi)
         ax.set_xlim(np.max(plot_xdat)+0.25, np.min(plot_xdat)-0.25)
-        ax.set_title(fr'$z \simeq {round(zdat, 1)}$', fontsize = 16, pad = 8)
+        ax.set_title(fr'$z \simeq {round(zdat, 1)}$', fontsize = 25, pad = 8)
         ax.xaxis.set_major_locator(ticker.MaxNLocator(integer=True)) # Make it so that only integers can be used in the  
+                                                                                       # axis labels
+        ax.yaxis.set_major_locator(ticker.MaxNLocator(integer=True)) # Make it so that only integers can be used in the  
                                                                                        # axis labels
         if i%ncols != 0:
             ax.axes.yaxis.set_ticklabels([])
@@ -202,13 +212,16 @@ def evolving_UVLF_fit(my_UVLF, backend_file = None, z_plot = None, plot_from_cha
     # Text & labels
     ylabel = r'$\log_{10}(\phi_{\rm{UV}}$ [$\rm{mag}^{-1} \rm{Mpc}^{-3}$])'
     xlabel = r'$M_{\rm{UV}}$ [mag]'
-
-    if math.ceil((nz+1)/ncols) > 1:
-        fig.supylabel(ylabel, x = 0.05)
-        if i%ncols == 1:
-            fig.supxlabel(xlabel, y = 0.07)
+    if math.ceil((nz+1)/ncols) > 1: # This means that there's more than one row of plots
+        if i%ncols==0:
+            fig.text(0.065, 0.5, ylabel, rotation = 'vertical')
+            fig.text(0.5, 0.27, xlabel, ha = 'center')
+        elif i%ncols == 1:
+            fig.supylabel(ylabel, x = 0.05)
+            fig.supxlabel(xlabel, y = 0.03)
         else:
-            fig.supxlabel(xlabel, y = 0)
+            fig.supylabel(ylabel, x = 0.05)
+            fig.supxlabel(xlabel, y = -0.03)
         fig.text(.5, 0.95, title, ha = 'center', fontsize = 20)
     else:
         if nz == 1:
@@ -224,7 +237,7 @@ def evolving_UVLF_fit(my_UVLF, backend_file = None, z_plot = None, plot_from_cha
     handles, labels = ax.get_legend_handles_labels() # Grab handles/labels from the real axes
     fig_ax = fig.add_subplot(gs[math.floor(i/ncols), i%ncols])
     fig_ax.axis("off")  
-    fig_ax.legend(handles, labels, loc='center')
+    fig_ax.legend(handles, labels, loc='center left')
     
     return fig
 
@@ -238,20 +251,24 @@ def MUV_distribution(my_UVLF, zs, param_values, Mhtab):
         param_values [1darray]: values of parameters to calculate MUV from Mh
         Mhtab [1darray]: log(Mh/M_odot) for plotting
     Outputs:
-        Figure showing P(MUV|Mh) for different halo masses. Note that even without time-evolving parameters, the P(MUV|Mh) will look different at
+        fig, ax: Figure showing P(MUV|Mh) for different halo masses. Note that even without time-evolving parameters, the P(MUV|Mh) will look different at
         differnet redshifts due time-evolving mass accretion rates
     """
     assert(len(zs)) <= 2, 'This routine can currently only accommodate 2 redshifts at once'
     
     # Create figure
-    fig, ax = plt.subplots()
+    fig = plt.figure(figsize=(12,8))            # keep same figsize for both figs
+    ax_rect  = [0.10, 0.12, 0.78, 0.80]       # left, bottom, width, height (0-1)
+    cax_rect = [0.895, 0.12, 0.04, 0.80]      # narrow right slot for cbar
+    ax = fig.add_axes(ax_rect)
     ax.invert_xaxis()
 
     MUV_range = np.linspace(-15, -24, 500) # Define range of MUVs to examine
     my_UVLF.HMFintclass.Mhtab = 10**Mhtab # Set the UVLF table of halo masses to the input value
 
-    # Create gradient for color-coding curves based on corresponding halo mass
-    cmap, sm, boundaries = create_custom_colorbar([periwinkle, red], Mhtab)
+    if len(Mhtab) > 1:
+        # Create gradient for color-coding curves based on corresponding halo mass
+        cmap, sm, boundaries = create_custom_colorbar([periwinkle, red], Mhtab)
     
     for z, ls in zip(zs, ['-', '--']): # Plot curves for each redshift
         params = my_UVLF.time_evolution(param_values, z) # Calculate how parameters evolve with redshift
@@ -263,25 +280,97 @@ def MUV_distribution(my_UVLF, zs, param_values, Mhtab):
         ax.plot(MUV_range[0], 0, ls = ls, color = 'black', label = f'$z={z}$') # Make invisible line for legend purposes
 
         for sigUV, MUV_bar, Mh in zip(params[-1], MUVbarlist, Mhtab): # Plot different color-coded Gaussians for different halo masses
-            # Get color based on halo mass
-            frac = (Mh - Mhtab.min()) / (Mhtab.max() - Mhtab.min()) 
-            color = cmap(frac)
+            if len(Mhtab) > 1:
+                # Get color based on halo mass
+                frac = (Mh - Mhtab.min()) / (Mhtab.max() - Mhtab.min()) 
+                color = cmap(frac)
+            else:
+                color = '#9689d5'
             P = (1/(sigUV * np.sqrt(2*np.pi)))*np.exp(-(MUV_range-MUV_bar)**2/(2*sigUV**2)) # Calculate Gaussian based on MUV_bar & sig_UV
-            
+            #ax.axvline(MUV_bar, color = turquoise, ls = 'dashed', lw = 3)
             ax.plot(MUV_range, P, color = color, ls = ls)
 
     # Color bar things:
-    cbar = fig.colorbar(sm, ax=ax, boundaries=boundaries, ticks=Mhtab, aspect = 14)
-    cbar.set_label(r'$\log_{10}{M_h}$')
+    if len(Mhtab)>1:
+        cax = fig.add_axes(cax_rect)
+        cbar = fig.colorbar(sm, cax=cax, boundaries=boundaries, ticks=Mhtab, aspect = 14)
+        cbar.set_label(r'$\log_{10}{M_h}$')
 
     # Figure labels
     ax.set_ylabel(r'$p(M_{\rm{UV}}|M_h)$')
     ax.set_xlabel(r'$M_{\rm{UV}}$ [mag]')
     ax.legend(loc = 'upper left')
 
-    return fig
+    return fig, ax
 
-def make_table(best_fits, param_labels, fit_labels, bounds):
+def sfe_shape_diff_z(my_UVLF, param_values, zs, Mhtab = None, id_max = False):
+    """
+    Plot SFE vs. halo mass at different redshifts
+    Inputs:
+        my_UVLF [eMCMC UVLF object]: UVLF object used for its methods such as applying time evolution to parameter values & wrapping them in the
+                                        right format for zeus21
+        param_values [1darray]: values of parameters to calculate SFE
+        zs [1darray]: redshifts to plot
+        Mhtab [1darray]: log10(Mh) to plot over
+        id_max [bool]: Whether or not to identify the maximum SFE at the highest and lowest redshift bin
+    Returns:
+        fig, ax: A figure showing the SFE over the range of given halo masses & redshifts
+    """
+
+    if Mhtab is None: 
+        Mhtab = np.linspace(10, 13, 200)
+
+    fig = plt.figure(figsize=(8, 6))            # keep same figsize for both figs
+    ax_rect  = [0.10, 0.12, 0.78, 0.80]       # left, bottom, width, height (0-1)
+    cax_rect = [0.895, 0.12, 0.04, 0.80]      # narrow right slot for cbar
+    ax = fig.add_axes(ax_rect)
+
+    if len(zs)>1:
+        cmap, sm, boundaries = create_custom_colorbar([yellow, turquoise], zs)
+    
+    for z in zs:
+        # Calculate parameters at this z
+        params = my_UVLF.time_evolution(param_values, z)
+        Astro_Parameters = my_UVLF.param_wrapper(params)
+        # Calculate SFE
+        SFEs = my_UVLF.CosmoParams.OmegaM/my_UVLF.CosmoParams.OmegaB * zeus21.sfrd.fstarofz(
+            Astro_Parameters, my_UVLF.CosmoParams, z, 10**Mhtab)
+        # Assign color
+        if len(zs) > 1:
+            frac = (z - min(zs)) / (max(zs) - min(zs))
+            color = cmap(frac)
+        else:
+            color = yellow
+        # Plot
+        plt.plot(Mhtab, SFEs, color = color, ls = '-', zorder = 0)
+
+        if ((z == max(zs) or z==min(zs)) and id_max): # Putting text on the plot indicating the maximum SFE for the highest & lowest redshifts
+            max_idx = np.argmax(SFEs)
+            plt.scatter(Mhtab[max_idx], SFEs[max_idx], color = color, s = 100, zorder = 1)
+            if z==min(zs): # Positioning the text
+                x = (Mhtab[max_idx]-0.7)
+                y = SFEs[max_idx]-0.01
+            else:
+                x = Mhtab[max_idx]
+                y = 0.6*SFEs[max_idx]
+            plt.text(x, y, fr'$f_\star = {round(SFEs[max_idx], 2)}$', color = color, ha = 'center', 
+                         va = 'center', size = 17)
+
+    if len(zs)>1:
+    # Color bar things:
+        cax = fig.add_axes(cax_rect)
+        cbar = fig.colorbar(sm, cax=cax, boundaries=boundaries, ticks=zs, aspect = 14)
+        cbar.set_label(r'$z$')
+
+    # Labels
+    ax.set_xlabel(r'$\log{M_h/M_{\odot}}$')
+    ax.set_ylabel(r'$f_{\star}$')
+    ax.set_yscale('log')
+        
+        
+    return fig, ax
+
+def make_table(best_fits, param_labels, fit_labels, bounds, file_name = None):
     """
     Make a table to compare best fit values of parameters
     Inputs:
@@ -289,6 +378,7 @@ def make_table(best_fits, param_labels, fit_labels, bounds):
         param_labels [list of strs]: names of parameters (rows of the table)
         fit_labels [list]: names of each type of fit (columns of the table)
         bounds [list of Nx2 arrays]: list of arrays with col1 = lower bound, col2 = upper bound on the best fit parameters
+        file_name [str]: path to saved file if you'd like to save the table
     Outputs:
         dataframe table with labeled parameters for comparison
     """
@@ -305,6 +395,9 @@ def make_table(best_fits, param_labels, fit_labels, bounds):
 
     df = pd.DataFrame(df_fill, columns = param_labels)
     df.index = fit_labels
+
+    if file_name is not None:
+        dfi.export(df.T, file_name, table_conversion = 'matplotlib', use_mathjax = True, dpi = 200)
 
     return df.T
 

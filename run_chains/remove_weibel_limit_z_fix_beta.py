@@ -5,16 +5,17 @@ import os
 import dataframe_image as dfi
 
 # Name this run
-run_name = 'z=456'
+run_name = 'remove_weibel_limit_z_fix_beta'
 
 # Get data
 file_names = ['/Users/eb35267/Desktop/code/home/data/Bouwens2021_low_z.txt',
               '/Users/eb35267/Desktop/code/home/data/Donnan24_limit_z.txt']
 data_labels = ['Bouwens+21', 'Donnan+24']
-sorted_data = edata.get_sorted(file_names, data_labels, include_zs = [4,5,6])
+sorted_data = edata.get_sorted(file_names, data_labels)
 
 # Initialize parameters
-params = eMCMC.build_param_data({'dsigdz': {'fit': False, 'value': 0}, 'dalphadz': {'fit': False, 'value':0}, 'dbetadz': {'fit':False, 'value':0}, 'dlogedz': {'fit':False, 'value':0}, 'dlogMcdz':{'fit':False, 'value':0}})
+params = eMCMC.build_param_data({'beta': {'fit':False, 'value': -0.54}, 'dbetadz': {'fit': False, 'value':0}})
+
 
 #---------------------------------------------------------------------------------------------------------------------------------------------
 

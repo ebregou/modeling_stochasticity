@@ -14,7 +14,7 @@ def decompose(data, MINRELERROR = 0.2):
         zdat, zerr, xdat, ydat, modified yerr_upper, yerr_lower, xerr
     """
     zdat = data[0] # redshift
-    zerr = data[1] # delta redshift (redshift bin)
+    zerr = data[1]
     xdat = data[2] # MUV
     ydat = data[3]# phiUV 
     yerr_upper = data[4]
@@ -47,7 +47,6 @@ def get_sorted(file_names, data_labels = None, include_zs = None):
     redshifts = np.unique(np.concatenate([data[0] for data in all_data])) # Get a list of all redshifts that exist within the files
     if include_zs is None: # Include all redshifts if none are specified
         include_zs = redshifts
-    dredshifts = np.ones_like(redshifts)/2. #approximate, there are true window functions to use
 
     # Organize data by redshift
     sorted_data = []
@@ -60,7 +59,7 @@ def get_sorted(file_names, data_labels = None, include_zs = None):
         z_separated = []
         for data, label in zip(all_data, data_labels):
             zlistindex = data[0] == 1.0*z
-            datarr = [z,dredshifts[iz], data[1][zlistindex], data[3][zlistindex], data[4][zlistindex], np.abs(data[5][zlistindex]), 
+            datarr = [z,data[6][zlistindex], data[1][zlistindex], data[3][zlistindex], data[4][zlistindex], np.abs(data[5][zlistindex]), 
                       #Use absolute value because the lower error bar is given as negative (centered on ydat)
                       data[2][zlistindex], label]
             z_separated.append(datarr)
@@ -80,7 +79,9 @@ def reduce(sorted_data):
     reduced_data = []
     for zbin in sorted_data:
         z = zbin[0][0]
-        dz = zbin[0][1]
+        dz_arr = np.concatenate([dat[1] for dat in zbin])
+        dz = dz_arr[0]
+        assert(all(err==dz for err in dz_arr)), "All datapoints in the same redshift bin must have the same redshift uncertainty, dz"
         MUVs = np.concatenate([dat[2]for dat in zbin])
         sorting = np.argsort(MUVs)
         MUVs = MUVs[sorting]
