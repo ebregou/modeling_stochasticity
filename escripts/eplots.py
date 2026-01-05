@@ -148,7 +148,6 @@ def evolving_UVLF_fit(my_UVLF, backend_file = None, include_zs = None, plot_from
     # Set the same y limits for all the plots
     ylo, yhi = np.log10(min([min(dat[3]) for dat in my_UVLF.data]))-0.25, np.log10(max([max(dat[3]) for dat in my_UVLF.data]))+0.25 
 
-    # Get the x grid to evaluate the UVLF over
     # Get the biggest possible grid of x data to plot over
     plot_xdat, inds = np.unique(np.concatenate([data[2] for data in my_UVLF.data]), return_index = True) 
     # Get the corresponding x error
@@ -345,7 +344,7 @@ def sfe_shape_diff_z(my_UVLF, param_values, zs, Mhtab = None, id_max = False):
         plt.plot(Mhtab, SFEs, color = color, ls = '-', zorder = 0)
 
         if ((z == max(zs) or z==min(zs)) and id_max): # Putting text on the plot indicating the maximum SFE for the highest & lowest redshifts
-            max_idx = np.argmax(SFEs)
+            max_idx = np.argmax(SFEs) # Maximum /= M_c unless the power law indices are the same!
             plt.scatter(Mhtab[max_idx], SFEs[max_idx], color = color, s = 100, zorder = 1)
             if z==min(zs): # Positioning the text
                 x = (Mhtab[max_idx]-0.7)
