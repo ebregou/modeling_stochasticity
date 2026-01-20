@@ -3,6 +3,8 @@
 
 from classy import Class
 import zeus21
+import numpy as np
+import astropy.units as u
 
 
 def classy_cosmology(Omega_b = 0.04927, Omega_m = 0.3156, h = 0.6727, k_max = 1e3, z_max = 10):

@@ -50,16 +50,6 @@ class UVLF():
         # Create MCMC sampler
         self.sampler = emcee.EnsembleSampler(self.nwalkers, self.ndim, self.log_prob, backend = self.backend) 
 
-    def generate_ICs_from_table(self):
-        """
-        Generate initial conditions using the general funtion generate_ICs, with the uppers & lowers provided in the input dataframe defining the 
-        bounds.
-        Returns: 
-            ICs [array]: ICs to run MCMC with
-        """
-        
-        return generate_ICs(self.lowers[self.fit], self.uppers[self.fit], self.nwalkers)
-
     def log_prob(self, paramvector): 
         """
         Calculate the log probability, taking into account the likelihood & the prior
@@ -187,7 +177,7 @@ class UVLF():
             below_limit = np.where(self.HMFintclass.Mhtab < Matom)[0]
             sig_array[below_limit] = 1e-4
 
-        param_values[-1] = sig_array # Set the minimum value of sigma
+        param_values[-1] = sig_array 
 
         return param_values
 
@@ -204,7 +194,7 @@ class UVLF():
                                               Mc=10**log10Mcstar,alphastar=alphastar, betastar=betastar, sigmaUV = sigmaUV)
         return astroparams
 
-    def get_fit(self, backend_file = None, burn_in = None, exclude_unfit = True, excluded_params = []):
+    def get_fit(self, backend_file = None, burn_in = None, exclude_unfit = True, excluded_params = [],):
         """
         Get samples and best fit values from MCMC samples (or, if the parameter is not fit, return the default value).
         Inputs:
@@ -273,12 +263,38 @@ class UVLF():
         
         # Get ICs for running MCMC
         if ICs is None:
-            ICs = self.generate_ICs_from_table()
+            ICs = self.generate_ICs(self.lowers[self.fit], self.uppers[self.fit])
 
         # Run MCMC with a progress bar
         _ = self.sampler.run_mcmc(ICs, Nsteps, progress = True)
 
         return
+    
+    def generate_ICs(self, lower_bounds, upper_bounds):
+        """
+        Generate initial conditions
+        Inputs: 
+            lower_bounds [1darray]: lower bounds for ICs
+            upper_bounds [1darray]: upper bounds for ICs
+            nwalkers [int]: number of walkers
+        Returns: 
+            ICs [array]: ICs to run MCMC with
+        """
+        nwalkers = self.nwalkers
+        default_df = get_default_df()
+
+        # Make sure the input initial condition values are within the default upper and lower limits
+        assert (all((base_lower <= input_lower for (base_lower, input_lower) in zip(default_df['lower'][self.fit], lower_bounds))) & 
+                all((base_upper >= input_upper for (base_upper, input_upper) in zip(default_df['upper'][self.fit], upper_bounds)))), \
+                    'the input uppers and lowers are outside the default bounds'
+
+        ordered_ICs = np.linspace(lower_bounds, upper_bounds, nwalkers, dtype = 'float') 
+        # Need to set datatype or it won't work
+        rand_inds = np.random.rand(*ordered_ICs.shape).argsort(axis=0) # Shuffled indices (this is so that a walker that starts at a lower for a
+                                                            # given parameter doesn't also start at the lower bound for all other parameters)
+        ICs = np.take_along_axis(ordered_ICs,rand_inds,axis=0) # Apply the randomization
+
+        return ICs
         
 
 def build_param_data(custom_params):
@@ -308,6 +324,8 @@ def build_param_data(custom_params):
 
     return default_values
 
+
+
 def get_default_df():
     """
     All supported parameters are included in this nested dictionary, including the following keys:
@@ -330,27 +348,8 @@ def get_default_df():
         'loge':    {'fit': True, 'value': -0.5, 'lower': -4.5, 'upper': 0, 'label': r"$\log(\epsilon_{\star})$"},
         'dlogedz': {'fit': True, 'value': 0,  'lower': -0.5, 'upper': 0.5, 'label': r'$d\log(\epsilon_{\star})/dz$'},
         'sig':     {'fit': True, 'value': 0, 'lower': 0, 'upper': 6, 'label': r'$\sigma_{\rm{UV}, M_c}$'},
-        'dsigdz':  {'fit': True, 'value': 0,  'lower': -0.5, 'upper': 1, 'label': r'$d\sigma_{\rm{UV}}/dz$'},
+        'dsigdz':  {'fit': True, 'value': 0,  'lower': -1, 'upper': 1, 'label': r'$d\sigma_{\rm{UV}}/dz$'},
         'dsigdlogM':  {'fit': True, 'value': 0,  'lower': -2, 'upper': 3, 'label': r'$d\sigma_{\rm{UV}}/d\log(M_{h})$'}
     }
 
     return pd.DataFrame(default_values).T
-
-def generate_ICs(lower_bounds, upper_bounds, nwalkers):
-    """
-    Generate initial conditions
-    Inputs: 
-        lower_bounds [1darray]: lower bounds for ICs
-        upper_bounds [1darray]: upper bounds for ICs
-        nwalkers [int]: number of walkers
-    Returns: 
-        ICs [array]: ICs to run MCMC with
-    """
-
-    ordered_ICs = np.linspace(lower_bounds, upper_bounds, nwalkers, dtype = 'float') 
-    # Need to set datatype or it won't work
-    rand_inds = np.random.rand(*ordered_ICs.shape).argsort(axis=0) # Shuffled indices (this is so that a walker that starts at a lower for a
-                                                        # given parameter doesn't also start at the lower bound for all other parameters)
-    ICs = np.take_along_axis(ordered_ICs,rand_inds,axis=0) # Apply the randomization
-
-    return ICs
