@@ -13,7 +13,8 @@ data_labels = ['Bouwens+21']
 sorted_data = edata.get_sorted(file_names, data_labels)
 
 # Initialize parameters
-params = eMCMC.build_param_data({'beta': {'fit':False, 'value': -0.54}, 'dbetadz': {'fit': False, 'value':0}})
+params = eMCMC.build_param_data({'beta': {'fit':False, 'value': -0.54}, 'dbetadz': {'fit': False, 'value':0}, 
+                                 'dsigdz':{'fit':False, 'value':0}})
 
 
 #Run MCMC chain ---------------------------------------------------------------------------------------------------------------------------------
@@ -29,13 +30,8 @@ backend_filename = f'{folder}/samples.h5'
 # Make the UVLF object
 my_UVLF = eMCMC.UVLF(sorted_data, params, backend_filename = backend_filename)
 
-# Get ICs to sample a sub-region of parameter space
-lowers = [0.53, -0.06, 11.84,  0.04,  -1.02, -0.06,  0.06, -0.81, -0.54]
-uppers = [0.77,  0.  , 13.16,  0.3 ,  -0.62,  0.1 ,  1.3 ,  0.97,  1.6 ]
-ICs = my_UVLF.generate_ICs(lowers, uppers)
-
 # Run the chain
-my_UVLF.run_MCMC(ICs = ICs)
+my_UVLF.run_MCMC()
 
 #---------------------------------------------------------------------------------------------------------------------------------------------
 

@@ -14,7 +14,7 @@ from escripts import edata
 
 # MCMC class
 class UVLF():
-    def __init__(self, sorted_data, param_data, Mhpivot = 11, minsig = 0.3, backend_filename = None, precisionboost = 1.5, cut_sig = True):
+    def __init__(self, sorted_data, param_data, Mhpivot = 11, min_sig = 0.3, backend_filename = None, precisionboost = 1.5, cut_sig = True):
         self.sorted_data = sorted_data # This isn't used in the MCMC at all but it's useful to have for plotting results since it divides data
                                         # by redshift & author
         self.data = edata.reduce(self.sorted_data)
@@ -30,10 +30,10 @@ class UVLF():
         self.ndim = np.sum(self.param_data['fit']) # Count the number of parameters to fit
         self.nwalkers = 2*self.ndim # Walkers = twice the number of parameters
         self.Mhpivot = Mhpivot # The central halo mass that corresponds to sigma_0
-        self.minsig = minsig # Minimum value sigma can take (in case of time evolving / halo mass evolving sigma). If you set it any lower than
+        self.min_sig = min_sig # Minimum value sigma can take (in case of time evolving / halo mass evolving sigma). If you set it any lower than
                             # the default value, you may have a lumpy UVLF
         self.backend_filename = backend_filename
-        self.cut_sig = cut_sig
+        self.cut_sig = cut_sig # Whether or not to force a small sigma for halos smaller than the atomic cooling limit
         if self.backend_filename is not None:
             self.backend = emcee.backends.HDFBackend(self.backend_filename)
             self.backend.reset(self.nwalkers, self.ndim)
@@ -111,7 +111,7 @@ class UVLF():
 
         return loglike_curr
 
-    def UVLF_wrapper(self, zcenter, zwidth, MUVcenters, MUVwidths, paramvector):
+    def UVLF_wrapper(self, zcenter, zwidth, MUVcenters, MUVwidths, paramvector, get_bias = False):
         """
         Computes and returns the UVLF at z=zcenters, with width zwidths, in bins centered at MUVcenters with width MUVwidths
         Inputs:
@@ -120,13 +120,20 @@ class UVLF():
             MUVcenters [1darray]: the central UV magnitude in each bin
             MUVwidths [1darray]: the width of the UV magnitude bins
             paramvector [1darray]: parameters
+            get_bias [bool]: whether or not to calculate the bias-weighted UVLF from Zeus & then divide by the ULVF to get back the bias
         Outputs:
             PhiUV [1darray]: In units of mag^-1 Mpc^-3
+            bias [1darray]: b(MUV) (unitless), returned if get_bias is True
         """
         params = self.time_evolution(paramvector, zcenter)
         astroparams = self.param_wrapper(params)
         UVLFs_std = zeus21.UVLFs.UVLF_binned(astroparams,self.CosmoParams,self.HMFintclass,zcenter,zwidth,MUVcenters,MUVwidths)
-        return UVLFs_std
+        if get_bias:
+            bias_weighted_UVLF = zeus21.UVLFs.UVLF_binned(astroparams,self.CosmoParams,self.HMFintclass,zcenter,zwidth,MUVcenters,MUVwidths, 
+                                                     RETURNBIAS = True)
+            return UVLFs_std, bias_weighted_UVLF/UVLFs_std
+        else:
+            return UVLFs_std
 
     def time_evolution(self, paramvector, zcenter):
         """
@@ -169,7 +176,7 @@ class UVLF():
         dsigdM = full_paramvector[-1]
         param_values = list(param_values) # Need to convert to a list such that the last element can be an array
         sig_array = sig + (dsigdM*(np.log10(self.HMFintclass.Mhtab)-self.Mhpivot))
-        sig_array = sig_array.clip(min=self.minsig)
+        sig_array = sig_array.clip(min=self.min_sig)
 
         # Assign small sigma to halos below the atomic cooling limit
         Matom = zeus21.sfrd.Matom(zcenter) # Get the atomic cooling limit at this redshift
