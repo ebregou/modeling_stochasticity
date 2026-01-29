@@ -5,6 +5,7 @@
 import numpy as np
 import emcee
 import pandas as pd
+
 import zeus21
 import h5py
 
@@ -16,7 +17,8 @@ from escripts import edata
 class UVLF():
     def __init__(self, sorted_data, param_data, Mhpivot = 11, min_sig = 0.3, backend_filename = None, precisionboost = 1.5, cut_sig = True):
         self.sorted_data = sorted_data # This isn't used in the MCMC at all but it's useful to have for plotting results since it divides data
-                                        # by redshift & author
+                                        # by redshift & author. There can also be datasets in here that aren't used in the likelihoods-- see 
+                                        # edata.sorted_data
         self.data = edata.reduce(self.sorted_data)
         if type(self.data[0]) is not list: # Make sure the format is correct for the rest of the script if only one redshift is input
             self.data = [self.data] 
@@ -146,21 +148,29 @@ class UVLF():
             [alphastar, betastar, log10epsstar, log10Mcstar, sigmaUV]: values of these parameters that match the given redshift
         """
 
-        # Deal with piecewise parameters if necessary
-        if np.isscalar(all(self.param_data['value'].iloc[self.notfit])):
-            insert_vals = self.param_data['value'].iloc[self.notfit]
-        else:
-            insert_vals = np.zeros(self.notfit) 
-            for i, val in enumerate(self.param_data['value'][self.notfit]):
-                if np.isscalar(val):
-                    insert_vals[i] = val
-                else:
-                    zindex = np.where(self.zs == zcenter)[0][0]
-                    insert_vals[i] = val[zindex]
+        # Deal with piecewise parameters
+        insert_default_vals = self.assign_piecewise(self.param_data['value'].iloc[self.notfit], zcenter)
+        insert_input_vals = self.assign_piecewise(paramvector, zcenter)
 
+        # Insert all parameter values, prepare for time / halo mass evolution
         full_paramvector =  np.zeros(len(self.param_data['label'])) # All parameters accounted for
-        full_paramvector[self.notfit] = insert_vals
-        full_paramvector[self.fit] = paramvector
+        full_paramvector[self.notfit] = insert_default_vals
+        full_paramvector[self.fit] = insert_input_vals
+
+        # # Deal with piecewise parameters if necessary
+        # for i, val in enumerate(default_vals):
+        #     if np.isscalar(val):
+        #         insert_vals[i] = val
+        #     else: # Assign the correct value of the parameter if the input is piecewise (find which redshift it matches to)
+        #         zindex = np.where(self.zs == zcenter)[0][0]
+        #         insert_vals[i] = val[zindex]
+
+        # # Get input parameters
+        # final_paramvector = np.zeros(len(paramvector))
+
+        # full_paramvector =  np.zeros(len(self.param_data['label'])) # All parameters accounted for
+        # full_paramvector[self.notfit] = insert_vals
+        # full_paramvector[self.fit] = paramvector
 
         # Apply time evolution
         base_idx = np.arange(0, 10, 2) # The order of the parameters are alternating base & time derivative
@@ -187,6 +197,27 @@ class UVLF():
         param_values[-1] = sig_array 
 
         return param_values
+    
+    def assign_piecewise(self, values, zcenter):
+        """
+        Helper function for time_evolution. If any parameters are given as piecewise instead of single values, assign the single value that
+        corresponds to the redshfit zcenter.
+        Inputs:
+            value [list]: list of parameters. May contain lists embedded in it if there are piecewise parameters.
+            zcenter [float]: center redshift value for binned UVLF data
+        Returns:
+            insert_vals [list]: list of parameters with a single value corresponding to each slot. The single value is chosen to correspond 
+                                to the given zcenter.
+        """
+        insert_vals = np.zeros(len(values))
+        for i, val in enumerate(values):
+            if np.isscalar(val):
+                insert_vals[i] = val
+            else: # Assign the correct value of the parameter if the input is piecewise (find which redshift it matches to)
+                zindex = np.where(self.zs == zcenter)[0][0]
+                insert_vals[i] = val[zindex]
+        return insert_vals
+                    
 
     def param_wrapper(self, params):
         """

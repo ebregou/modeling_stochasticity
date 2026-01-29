@@ -5,19 +5,17 @@ import os
 import dataframe_image as dfi
 
 # Name this run
-run_name = 'just_HST_narrowed_run'
+run_name = 'chunks/456'
 
 # Get data
 file_names = ['/Users/eb35267/Desktop/code/home/data/Bouwens2021_low_z.txt']
 data_labels = ['Bouwens+21']
-sorted_data = edata.get_sorted(file_names, data_labels)
+sorted_data = edata.get_sorted(file_names, data_labels, include_zs = [4, 5, 6])
 
 # Initialize parameters
-params = eMCMC.build_param_data({'beta': {'fit':False, 'value': -0.54}, 'dbetadz': {'fit': False, 'value':0}, 
-                                 'dsigdz':{'fit':False, 'value':0.17}, 'alpha':{'fit': False, 'value':0.57}, 
-                                 'dalphadz': {'fit':False, 'value': -0.03}, 'logMc':{'fit': False, 'value':12.12},
-                                 'dlogMcdz':{'fit':False, 'value': 0.11}, 'loge': {'fit': False, 'value': -0.93},
-                                 'dlogedz': {'fit': False, 'value': -0.04}})
+params = eMCMC.build_param_data({'beta':{'fit': False, 'value': -0.54}, 'dbetadz':{'fit':False, 'value':0}, 'dsigdz':{'fit':False, 'value':0},
+                                 'dalphadz':{'fit': False, 'value':0}, 'dlogMcdz':{'fit': False, 'value':0}, 
+                                 'dlogedz':{'fit': False, 'value':0}})
 
 
 #Run MCMC chain ---------------------------------------------------------------------------------------------------------------------------------
@@ -33,7 +31,7 @@ backend_filename = f'{folder}/samples.h5'
 # Make the UVLF object
 my_UVLF = eMCMC.UVLF(sorted_data, params, backend_filename = backend_filename)
 
-#Run the chain
+# Run the chain
 my_UVLF.run_MCMC()
 
 #---------------------------------------------------------------------------------------------------------------------------------------------
@@ -59,10 +57,6 @@ sfe_over_z.savefig(f'{folder}/sfe_over_z.png', bbox_inches = 'tight')
 # Plot walkers & burn-in
 walker_fig = eplots.walkers(my_UVLF, best_fit)
 walker_fig.savefig(f'{folder}/walkers.png', bbox_inches='tight')
-
-# Plot sigmaUV vs. Mh at different redshifts
-sigMh_fig = eplots.sigma_Mh(my_UVLF, best_fit, zs = [4, 6, 8])
-sigMh_fig.savefig(f'{folder}/sigvsMh.png', bbox_inches='tight')
 
 # Parameter table
 table = eplots.make_table([best_fit], param_labels, ['best fit'], [bounds])

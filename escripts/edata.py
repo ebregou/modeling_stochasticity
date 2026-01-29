@@ -26,7 +26,7 @@ def decompose(data, MINRELERROR = 0.2):
 
     return zdat, zerr, xdat, ydat, yerr_upper, yerr_lower, xerr
 
-def get_sorted(file_names, data_labels = None, include_zs = None): 
+def get_sorted(file_names, data_labels = None, include_zs = None, include_in_likelihood = None): 
     """
     Read in data and organize it by dataset and redshift. We want the data sorted by dataset for plotting purposes (so we can assign credit to the
     studies that observed different things). 
@@ -34,15 +34,23 @@ def get_sorted(file_names, data_labels = None, include_zs = None):
         file_names [list of strs]: file names to read data from
         data_labels [list of strs]: names of datasets, for plotting purposes
         include_zs [list of floats]: optional, which redshifts to include in the output data
+        include_in_likelihood [list of bools]: optional, whether to include each dataset in the likelihood with the MCMC. If None, defaults to
+                                               including all of the data
     Returns:
-        data, organized by dataset and redshift
+        list of data organized by dataset and redshift
     """
     if data_labels is None:
-        data_labels = np.full('', len(file_names))
+        data_labels = np.full(len(file_names), '')
+    
+    if include_in_likelihood is None:
+        include_in_likelihood = np.full(len(file_names), True)
         
     all_data = []
     for fn in file_names:
-        all_data.append(np.loadtxt(fn, unpack = True))
+        new_data = np.loadtxt(fn, unpack = True)
+        if new_data.ndim == 1: # If there's only one point in the file
+            new_data = [np.array([dat]) for dat in new_data]
+        all_data.append(new_data)
                         
     redshifts = np.unique(np.concatenate([data[0] for data in all_data])) # Get a list of all redshifts that exist within the files
     if include_zs is None: # Include all redshifts if none are specified
@@ -57,11 +65,11 @@ def get_sorted(file_names, data_labels = None, include_zs = None):
             print(f'Skipping $z = {z}')
             continue
         z_separated = []
-        for data, label in zip(all_data, data_labels):
+        for data, label, include in zip(all_data, data_labels, include_in_likelihood):
             zlistindex = data[0] == 1.0*z
             datarr = [z,data[6][zlistindex], data[1][zlistindex], data[3][zlistindex], data[4][zlistindex], np.abs(data[5][zlistindex]), 
                       #Use absolute value because the lower error bar is given as negative (centered on ydat)
-                      data[2][zlistindex], label]
+                      data[2][zlistindex], label, include]
             z_separated.append(datarr)
         sorted_data.append(z_separated)
 
@@ -77,9 +85,15 @@ def reduce(sorted_data):
         reduced_data [list]: data sorted by just redshift, ordered by MUV
     """
     reduced_data = []
+    sorted_data
     for zbin in sorted_data:
+        # Ensure that only data labeled for inclusion in the MCMC likelihood gets in:
+        zbin = [zbin_data for zbin_data in zbin if zbin_data[-1]]
+
         z = zbin[0][0]
         dz_arr = np.concatenate([dat[1] for dat in zbin])
+        if len(dz_arr) == 0:
+            continue
         dz = dz_arr[0]
         assert(all(err==dz for err in dz_arr)), "All datapoints in the same redshift bin must have the same redshift uncertainty, dz"
         MUVs = np.concatenate([dat[2]for dat in zbin])

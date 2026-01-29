@@ -13,7 +13,7 @@ data_labels = ['Bouwens+21']
 sorted_data = edata.get_sorted(file_names, data_labels)
 
 # Initialize parameters
-params = eMCMC.build_param_data({'beta': {'fit':False, 'value': -0.54}, 'dbetadz': {'fit': False, 'value':0}})
+params = eMCMC.build_param_data({'beta':{'fit': False, 'value': -0.54}, 'dbetadz':{'fit':False, 'value':0}, 'dsigdz':{'fit':False, 'value':0.17}})
 
 
 #Run MCMC chain ---------------------------------------------------------------------------------------------------------------------------------

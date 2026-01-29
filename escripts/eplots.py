@@ -122,7 +122,7 @@ def evolving_UVLF_fit(my_UVLF, backend_file = None, z_plot = None, z_errs = None
         comparison_labels [list of strs]: labels that correspond to the parameter values in comparison_fits, for the legend
         ncols [int]: number of columns to plot
         title [str]: overarching title of the plot
-        burn_in [int]: number of samples to discard as burnin
+        burn_in [int]: number of samples to discard as burnin. If None, the default value will be used (see UVLF.get_fit())
     Outputs:
         Figure showing the UVLF at different redshfits
     """
@@ -143,8 +143,6 @@ def evolving_UVLF_fit(my_UVLF, backend_file = None, z_plot = None, z_errs = None
 
         idxs = np.concatenate([np.where(np.abs(data_z - z) < zerr)[0] for z, zerr in zip(z_plot, z_errs)])
         dat = [my_UVLF.data[i] for i in idxs]
-        # if z_errs is None:
-        #     z_errs = np.full_like(z_pot)
     
 
     if len(comparison_fits) > 0:
@@ -169,9 +167,9 @@ def evolving_UVLF_fit(my_UVLF, backend_file = None, z_plot = None, z_errs = None
     ylo, yhi = np.log10(min([min(dat[3]) for dat in my_UVLF.data]))-0.25, np.log10(max([max(dat[3]) for dat in my_UVLF.data]))+0.25 
 
     # Get the biggest possible grid of x data to plot over
-    plot_xdat, inds = np.unique(np.concatenate([data[2] for data in my_UVLF.data]), return_index = True) 
+    plot_xdat, xdat_inds = np.unique(np.concatenate([data[2] for data in my_UVLF.data]), return_index = True) 
     # Get the corresponding x error
-    plot_xerr = np.concatenate([data[6] for data in my_UVLF.data])[inds]
+    plot_xerr = np.concatenate([data[6] for data in my_UVLF.data])[xdat_inds]
 
     axs = []
     for i, (z, zerr) in enumerate(zip(z_plot, z_errs)): 
@@ -205,14 +203,20 @@ def evolving_UVLF_fit(my_UVLF, backend_file = None, z_plot = None, z_errs = None
                        label = fr'{label}, $\chi^2 = {chi2_fit:.0f}$', linestyle = ls, zorder = 1)
         
         # Plot data
-        idx = np.where(np.abs(data_z - z) <= zerr)[0]
+        all_dat_z = [dat[0][0] for dat in my_UVLF.sorted_data]
+        idx = np.where(np.abs(all_dat_z - z) <= zerr)[0]
         if len(idx) > 0:
             zbin = my_UVLF.sorted_data[idx[0]]
+
             for dat_z, fmt in zip(zbin, ['o', 'v', 's', 'D', '^']):
                 xdat, ydat, yerr_upper, yerr_lower, xerr = dat_z[2], dat_z[3], dat_z[4], dat_z[5], dat_z[6]
-                ax.scatter(xdat, np.log10(ydat), marker = fmt, label = dat_z[7], c = navy, s = 180)
                 ax.vlines(xdat, np.clip(np.log10(ydat - yerr_lower), -100, 100), np.clip(np.log10(ydat + yerr_upper), -100, 100), ls = '-', 
-                        colors = navy, linewidth =6)
+                          colors = navy, linewidth =6)
+                if dat_z[-1]: # This indicates whether the data was used in the MCMC likelihood or not:
+                    ax.scatter(xdat, np.log10(ydat), marker = fmt, label = dat_z[7], c = navy, s = 180)
+                else: 
+                    ax.scatter(xdat, np.log10(ydat), marker = fmt, label = dat_z[7], facecolors = 'white', edgecolors = navy, s = 180, 
+                               zorder = 4, linewidth = 3)
 
         ax.invert_xaxis()
         ax.set_ylim(ylo, yhi)
@@ -237,10 +241,14 @@ def evolving_UVLF_fit(my_UVLF, backend_file = None, z_plot = None, z_errs = None
     ylabel = r'$\log_{10}(\phi_{\rm{UV}}$ [$\rm{mag}^{-1} \rm{Mpc}^{-3}$])'
     xlabel = r'$M_{\rm{UV}}$ [mag]'
     if math.ceil((nz+1)/ncols) > 1: # This means that there's more than one row of plots
-        if (i+1)%ncols==0:
+        if (i+2)%ncols==0: # This means equal number of columns as there are axes (including the one that corresponds to the legend)
             fig.text(0.065, 0.5, ylabel, rotation = 'vertical')
-            fig.text(0.5, 0.35, xlabel, ha = 'center')
+            fig.text(0.5, 0.05, xlabel, ha = 'center')
+        elif (i+1)%ncols == 0: # This means that you've overflowed by one
+            fig.text(0.065, 0.5, ylabel, rotation = 'vertical')
+            fig.text(0.5, 0.24, xlabel, ha = 'center')
         else:
+            print('here')
             fig.supylabel(ylabel, x = 0.05)
             fig.supxlabel(xlabel, y = 0.07)
     else:
@@ -271,7 +279,7 @@ def MUV_distribution(my_UVLF, zs, param_values, Mhtab):
         fig, ax: Figure showing P(MUV|Mh) for different halo masses. Note that even without time-evolving parameters, the P(MUV|Mh) will look different at
         differnet redshifts due time-evolving mass accretion rates
     """
-    assert(len(zs)) <= 2, 'This routine can currently only accommodate 2 redshifts at once'
+    assert(len(zs)) <= 3, 'This routine can currently only accommodate 3 redshifts at once'
     
     # Create figure
     fig = plt.figure(figsize=(12,8))            # keep same figsize for both figs
@@ -287,7 +295,7 @@ def MUV_distribution(my_UVLF, zs, param_values, Mhtab):
         # Create gradient for color-coding curves based on corresponding halo mass
         cmap, sm, boundaries = create_custom_colorbar([periwinkle, red], Mhtab)
     
-    for z, ls in zip(zs, ['-', '--']): # Plot curves for each redshift
+    for z, ls in zip(zs, ['-', '--', 'dotted']): # Plot curves for each redshift
         params = my_UVLF.time_evolution(param_values, z) # Calculate how parameters evolve with redshift
         astroparams = my_UVLF.param_wrapper(params)# Get the parameters in the right format for use with zeus21
         SFRlist = zeus21.sfrd.SFR_II(astroparams, my_UVLF.CosmoParams, my_UVLF.HMFintclass, 10**Mhtab, z, z) # Calculate SFR
