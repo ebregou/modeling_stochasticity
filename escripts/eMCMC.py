@@ -15,7 +15,7 @@ from escripts import edata
 
 # MCMC class
 class UVLF():
-    def __init__(self, sorted_data, param_data, Mhpivot = 11, min_sig = 0.3, backend_filename = None, precisionboost = 1.5, cut_sig = True):
+    def __init__(self, sorted_data, param_data, Mhpivot = 11, backend_filename = None, precisionboost = 1.5, cut_sig = True, min_t = 5e6):
         self.sorted_data = sorted_data # This isn't used in the MCMC at all but it's useful to have for plotting results since it divides data
                                         # by redshift & author. There can also be datasets in here that aren't used in the likelihoods-- see 
                                         # edata.sorted_data
@@ -32,10 +32,9 @@ class UVLF():
         self.ndim = np.sum(self.param_data['fit']) # Count the number of parameters to fit
         self.nwalkers = 2*self.ndim # Walkers = twice the number of parameters
         self.Mhpivot = Mhpivot # The central halo mass that corresponds to sigma_0
-        self.min_sig = min_sig # Minimum value sigma can take (in case of time evolving / halo mass evolving sigma). If you set it any lower than
-                            # the default value, you may have a lumpy UVLF
         self.backend_filename = backend_filename
         self.cut_sig = cut_sig # Whether or not to force a small sigma for halos smaller than the atomic cooling limit
+        self.min_t = min_t # Minimum time that a halo could convert all of its gas into stars. Used to set min(MUV)
         if self.backend_filename is not None:
             self.backend = emcee.backends.HDFBackend(self.backend_filename)
             self.backend.reset(self.nwalkers, self.ndim)
@@ -44,13 +43,24 @@ class UVLF():
 
         # Get cosmological parameters, construct HMF from Zeus
         CosmoParams_input = zeus21.Cosmo_Parameters_Input(zmin_CLASS=0.0)
-        self.CosmoParams,ClassyCosmo, CorrFclass, self.HMFintclass =  zeus21.cosmo_wrapper(self.UserParams, CosmoParams_input)
+        self.CosmoParams,ClassyCosmo, CorrFclass, self.HMFintclass =  zeus21.cosmo_wrapper(self.UserParams, CosmoParams_input) 
+        #HMFintclass.HMF_int gives the halo mass function in units M_odot^-1*Mpc^-3
+
 
         # Get baseline astronomical parameters
         self.Astro_Parameters = zeus21.Astro_Parameters(self.UserParams, self.CosmoParams)
 
         # Create MCMC sampler
         self.sampler = emcee.EnsembleSampler(self.nwalkers, self.ndim, self.log_prob, backend = self.backend) 
+
+    def calc_min_MUV(self, Mhtab):
+        """
+        Calculate the brightest galaxies of a given halo mass can be
+        """
+        fb = self.CosmoParams.OmegaB / self.CosmoParams.OmegaM
+        max_SFR = Mhtab*fb/self.min_t
+        MUV = zeus21.UVLFs.MUV_of_SFR(max_SFR, self.Astro_Parameters._kappaUV)
+        return MUV
 
     def log_prob(self, paramvector): 
         """
@@ -113,7 +123,7 @@ class UVLF():
 
         return loglike_curr
 
-    def UVLF_wrapper(self, zcenter, zwidth, MUVcenters, MUVwidths, paramvector, get_bias = False):
+    def UVLF_wrapper(self, zcenter, zwidth, MUVcenters, MUVwidths, paramvector, return_weights = False, get_bias = False):
         """
         Computes and returns the UVLF at z=zcenters, with width zwidths, in bins centered at MUVcenters with width MUVwidths
         Inputs:
@@ -122,20 +132,28 @@ class UVLF():
             MUVcenters [1darray]: the central UV magnitude in each bin
             MUVwidths [1darray]: the width of the UV magnitude bins
             paramvector [1darray]: parameters
+            minMUV [1darray]: alternative minimum MUV
+            return_weights [bool]: whether to return the grid of P(MUV|Mh) instead of the UVLF
             get_bias [bool]: whether or not to calculate the bias-weighted UVLF from Zeus & then divide by the ULVF to get back the bias
         Outputs:
             PhiUV [1darray]: In units of mag^-1 Mpc^-3
             bias [1darray]: b(MUV) (unitless), returned if get_bias is True
         """
+        minMUV = self.calc_min_MUV(self.HMFintclass.Mhtab)
         params = self.time_evolution(paramvector, zcenter)
         astroparams = self.param_wrapper(params)
-        UVLFs_std = zeus21.UVLFs.UVLF_binned(astroparams,self.CosmoParams,self.HMFintclass,zcenter,zwidth,MUVcenters,MUVwidths)
-        if get_bias:
-            bias_weighted_UVLF = zeus21.UVLFs.UVLF_binned(astroparams,self.CosmoParams,self.HMFintclass,zcenter,zwidth,MUVcenters,MUVwidths, 
-                                                     RETURNBIAS = True)
-            return UVLFs_std, bias_weighted_UVLF/UVLFs_std
+
+        if return_weights:
+            return zeus21.UVLFs.UVLF_binned(astroparams,self.CosmoParams,self.HMFintclass,zcenter,zwidth,MUVcenters,MUVwidths,minMUV,
+                                            RETURNWEIGHTS = True)
         else:
-            return UVLFs_std
+            UVLFs_std = zeus21.UVLFs.UVLF_binned(astroparams,self.CosmoParams,self.HMFintclass,zcenter,zwidth,MUVcenters,MUVwidths, minMUV)
+            if get_bias:
+                bias_weighted_UVLF = zeus21.UVLFs.UVLF_binned(astroparams,self.CosmoParams,self.HMFintclass,zcenter,zwidth,MUVcenters,MUVwidths, minMUV,
+                                                     RETURNBIAS = True)
+                return UVLFs_std, bias_weighted_UVLF/UVLFs_std
+            else:
+                return UVLFs_std
 
     def time_evolution(self, paramvector, zcenter):
         """
@@ -183,10 +201,11 @@ class UVLF():
 
         # Apply mass dependence of sigma
         sig = param_values[-1]
-        dsigdM = full_paramvector[-1]
+        dsigdM = full_paramvector[-2]
+        min_sig = full_paramvector[-1]
         param_values = list(param_values) # Need to convert to a list such that the last element can be an array
         sig_array = sig + (dsigdM*(np.log10(self.HMFintclass.Mhtab)-self.Mhpivot))
-        sig_array = sig_array.clip(min=self.min_sig)
+        sig_array = sig_array.clip(min=min_sig)
 
         # Assign small sigma to halos below the atomic cooling limit
         Matom = zeus21.sfrd.Matom(zcenter) # Get the atomic cooling limit at this redshift
@@ -259,6 +278,7 @@ class UVLF():
 
         # Get highest probability sample
         best_fit_data = samples[np.argmax(log_prob)]
+        print(best_fit_data)
         i = 0
         best_fit = []
         all_labels = []
@@ -333,6 +353,21 @@ class UVLF():
         ICs = np.take_along_axis(ordered_ICs,rand_inds,axis=0) # Apply the randomization
 
         return ICs
+    
+    def get_all_MUV_bins(self):
+        """
+        Get all unique MUV bins & errors present in the data. Helpful for plotting over the largest set of x values that you can.
+        Returns:
+            MUVcenters [1darray]: center of all unique MUV bins
+            MUVwidths [1darray]: widths of all unique MUV bins
+        """
+
+        # Get the biggest possible grid of MUV data to plot over
+        MUVcenters, inds = np.unique(np.concatenate([data[2] for data in self.data]), return_index = True) 
+        # Get the corresponding bin width
+        MUVwidths = np.concatenate([data[6] for data in self.data])[inds]
+
+        return MUVcenters, MUVwidths
         
 
 def build_param_data(custom_params):
@@ -377,17 +412,18 @@ def get_default_df():
     if 'fit' is labeled False; there is currently not support for using MCMC to fit parameters in a piecewise fashion. 
     """
     default_values = {
-        'alpha':   {'fit': True, 'value': 0.6, 'lower': 0, 'upper': 4, 'label': r"$\alpha$"},
+        'alpha':   {'fit': True, 'value': 0.6, 'lower': 0, 'upper': 2.5, 'label': r"$\alpha$"},
         'dalphadz':{'fit': True, 'value': 0,  'lower': -0.5, 'upper': 0.5, 'label': r"$d\alpha/dz$"},
-        'beta':    {'fit': True, 'value': -0.5,  'lower': -3, 'upper': 0, 'label': r"$\beta$"},
-        'dbetadz': {'fit': True, 'value': 0,  'lower': -1, 'upper': 1.5, 'label': r"$d\beta/dz$"},
+        'beta':    {'fit': True, 'value': -0.5,  'lower': -2, 'upper': 0, 'label': r"$\beta$"},
+        'dbetadz': {'fit': True, 'value': 0,  'lower': -0.5, 'upper': 0.5, 'label': r"$d\beta/dz$"},
         'logMc':   {'fit': True, 'value': 12, 'lower': 9, 'upper': 16, 'label': r'$\log(M_c)$'},
         'dlogMcdz':{'fit': True, 'value': 0,  'lower': -0.5, 'upper': 0.5, 'label': r'$d\log(M_c)/dz$'},
         'loge':    {'fit': True, 'value': -0.5, 'lower': -4.5, 'upper': 0, 'label': r"$\log(\epsilon_{\star})$"},
         'dlogedz': {'fit': True, 'value': 0,  'lower': -0.5, 'upper': 0.5, 'label': r'$d\log(\epsilon_{\star})/dz$'},
-        'sig':     {'fit': True, 'value': 0, 'lower': 0, 'upper': 6, 'label': r'$\sigma_{\rm{UV}, M_c}$'},
-        'dsigdz':  {'fit': True, 'value': 0,  'lower': -1, 'upper': 1, 'label': r'$d\sigma_{\rm{UV}}/dz$'},
-        'dsigdlogM':  {'fit': True, 'value': 0,  'lower': -2, 'upper': 3, 'label': r'$d\sigma_{\rm{UV}}/d\log(M_{h})$'}
+        'sig':     {'fit': True, 'value': 0, 'lower': 0, 'upper': 5, 'label': r'$\sigma_{\rm{UV}, M_c}$'},
+        'dsigdz':  {'fit': True, 'value': 0,  'lower': -0.75, 'upper': 0.5, 'label': r'$d\sigma_{\rm{UV}}/dz$'},
+        'dsigdlogM':  {'fit': True, 'value': 0,  'lower': -1.5, 'upper': 0.5, 'label': r'$d\sigma_{\rm{UV}}/d\log(M_{h})$'},
+        'min_sig': {'fit': True, 'value': 0.5, 'lower': 0.3, 'upper': 1.5, 'label': r'$\min(\sigma_{\rm{UV}}$)'}
     }
 
     return pd.DataFrame(default_values).T

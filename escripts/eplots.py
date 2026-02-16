@@ -15,6 +15,7 @@ from matplotlib.cm import ScalarMappable
 from matplotlib.legend_handler import HandlerLine2D
 from matplotlib.lines import Line2D
 from matplotlib.gridspec import GridSpec
+from matplotlib.transforms import Bbox
 from collections import OrderedDict
 import numpy as np
 import corner
@@ -141,7 +142,7 @@ def evolving_UVLF_fit(my_UVLF, backend_file = None, z_plot = None, z_errs = None
         if type(z_errs) == list:
             z_errs = np.array(z_errs)
 
-        idxs = np.concatenate([np.where(np.abs(data_z - z) < zerr)[0] for z, zerr in zip(z_plot, z_errs)])
+        idxs = np.concatenate([np.where(np.abs(data_z - z) < z_err)[0] for z, z_err in zip(z_plot, z_errs)])
         dat = [my_UVLF.data[i] for i in idxs]
     
 
@@ -152,11 +153,9 @@ def evolving_UVLF_fit(my_UVLF, backend_file = None, z_plot = None, z_errs = None
     nz = len(z_plot)
     fig = plt.figure()
     gs = GridSpec(math.ceil((nz+1)/ncols), ncols, figure=fig)
-    
-    # Adjust size & spacing
-    fig.set_size_inches(4*ncols, 4*math.ceil((nz+1)/ncols))
     plt.subplots_adjust(wspace = 0, hspace = 0.3)
-
+    
+   
     # Get samples & best fit
     if plot_from_chain:
         samples, best_fit, _, _= my_UVLF.get_fit(backend_file = backend_file, exclude_unfit = True, burn_in = burn_in)
@@ -164,15 +163,19 @@ def evolving_UVLF_fit(my_UVLF, backend_file = None, z_plot = None, z_errs = None
     chi2_comparison = [-2*my_UVLF.log_like(fit, dat) for fit in comparison_fits]
 
     # Set the same y limits for all the plots
-    ylo, yhi = np.log10(min([min(dat[3]) for dat in my_UVLF.data]))-0.25, np.log10(max([max(dat[3]) for dat in my_UVLF.data]))+0.25 
+    # Flatten all ydat values from sorted_data
+    all_ydat = np.concatenate([np.concatenate([ds[3] for ds in z_separated])  # ds[3] is ydat
+                               for z_separated in my_UVLF.sorted_data])
+    
 
-    # Get the biggest possible grid of x data to plot over
-    plot_xdat, xdat_inds = np.unique(np.concatenate([data[2] for data in my_UVLF.data]), return_index = True) 
-    # Get the corresponding x error
-    plot_xerr = np.concatenate([data[6] for data in my_UVLF.data])[xdat_inds]
+    ylo, yhi = np.log10(all_ydat.min()) - 1, np.log10(all_ydat.max()+3)
+
+
+    # Flatten all xdat and xerr across all redshifts and datasets
+    MUVcenters, MUVwidths = my_UVLF.get_all_MUV_bins()
 
     axs = []
-    for i, (z, zerr) in enumerate(zip(z_plot, z_errs)): 
+    for i, (z, z_err) in enumerate(zip(z_plot, z_errs)): 
 
         ax = fig.add_subplot(gs[math.floor(i/ncols), i%ncols])
         axs.append(ax)
@@ -184,13 +187,13 @@ def evolving_UVLF_fit(my_UVLF, backend_file = None, z_plot = None, z_errs = None
             # Plot each sample from the chain
             for ind in inds: 
                 sample = samples[ind]
-                ax.plot(plot_xdat, np.log10(my_UVLF.UVLF_wrapper(z,zerr, plot_xdat, plot_xerr,sample)), alpha=6/max(nsamples, 6), 
+                ax.plot(MUVcenters, np.log10(my_UVLF.UVLF_wrapper(z,z_err, MUVcenters, MUVwidths,sample)), alpha=6/max(nsamples, 6), 
                            color = red, linestyle = '-', zorder = 0)
     
             # Plot best fit
             chi2 = -2* my_UVLF.log_like(best_fit, alt_data = dat)
 
-            ax.plot(plot_xdat, np.log10(my_UVLF.UVLF_wrapper(z, zerr, plot_xdat, plot_xerr, best_fit)), color = red, linestyle = '-', 
+            ax.plot(MUVcenters, np.log10(my_UVLF.UVLF_wrapper(z, z_err, MUVcenters, MUVwidths, best_fit)), color = red, linestyle = '-', 
                                            zorder = 0, label = fr'best fit, $\chi^2 = {chi2:.0f}$', lw = 5)
             
             ax.plot([0], [0], color = red, alpha = 0.1, label = 'sampled fits', linestyle = '-', lw = 5) # Create the label for the samples
@@ -199,134 +202,137 @@ def evolving_UVLF_fit(my_UVLF, backend_file = None, z_plot = None, z_errs = None
         for fit, chi2_fit, label, color, ls in zip(comparison_fits, chi2_comparison, comparison_labels, 
                                                    [turquoise, yellow, orange, green], 
                                         ['solid', 'dashdot', 'dashed', 'dotted']):
-            ax.plot(plot_xdat, np.log10(my_UVLF.UVLF_wrapper(z,zerr,plot_xdat,plot_xerr, fit)), color = color, 
+            ax.plot(MUVcenters, np.log10(my_UVLF.UVLF_wrapper(z,z_err,MUVcenters, MUVwidths,fit)), color = color, 
                        label = fr'{label}, $\chi^2 = {chi2_fit:.0f}$', linestyle = ls, zorder = 1)
         
         # Plot data
         all_dat_z = [dat[0][0] for dat in my_UVLF.sorted_data]
-        idx = np.where(np.abs(all_dat_z - z) <= zerr)[0]
+        idx = np.where(np.abs(all_dat_z - z) <= z_err)[0]
         if len(idx) > 0:
-            zbin = my_UVLF.sorted_data[idx[0]]
+            for zbin in [my_UVLF.sorted_data[idx_i] for idx_i in idx]:
+            #zbin = my_UVLF.sorted_data[idx[0]]
 
-            for dat_z, fmt in zip(zbin, ['o', 'v', 's', 'D', '^']):
-                xdat, ydat, yerr_upper, yerr_lower, xerr = dat_z[2], dat_z[3], dat_z[4], dat_z[5], dat_z[6]
-                ax.vlines(xdat, np.clip(np.log10(ydat - yerr_lower), -100, 100), np.clip(np.log10(ydat + yerr_upper), -100, 100), ls = '-', 
-                          colors = navy, linewidth =6)
-                if dat_z[-1]: # This indicates whether the data was used in the MCMC likelihood or not:
-                    ax.scatter(xdat, np.log10(ydat), marker = fmt, label = dat_z[7], c = navy, s = 180)
-                else: 
-                    ax.scatter(xdat, np.log10(ydat), marker = fmt, label = dat_z[7], facecolors = 'white', edgecolors = navy, s = 180, 
-                               zorder = 4, linewidth = 3)
+                for dat_z, fmt in zip(zbin, ['o', 'v', 's', 'D', '^', 'P']):
+                    xdat, ydat, yerr_upper, yerr_lower, xerr, upper_lim_bool = dat_z[2], dat_z[3], dat_z[4], dat_z[5], dat_z[6], dat_z[7].astype('bool')
+                    ax.vlines(xdat, np.clip(np.log10(ydat - yerr_lower), -100, 100), np.clip(np.log10(ydat + yerr_upper), -100, 100), ls = '-', colors = navy, linewidth =5)
+                    
+                    # Show upper limits with a unique plotting style
+                    for x, y in zip(xdat[upper_lim_bool], ydat[upper_lim_bool]):
+                        ax.vlines(x, np.log10(y)-0.75, np.log10(y), ls = '-', colors = navy, linewidth = 5, alpha = 0.5)
+                        ax.scatter(x, np.log10(y)-0.75, marker = 'v', c = navy, s = 65)
 
-        ax.invert_xaxis()
-        ax.set_ylim(ylo, yhi)
-        ax.set_xlim(np.max(plot_xdat)+0.25, np.min(plot_xdat)-0.25)
-        ax.set_title(fr'${round(z-zerr, 1)} \lesssim z \lesssim {round(z+zerr, 1)}$', fontsize = 20, pad = 8)
+                    if dat_z[-1]: # This indicates whether the data was used in the MCMC likelihood or not
+                        for x, y in zip(xdat[upper_lim_bool], ydat[upper_lim_bool]):
+                            ax.scatter(x, np.log10(y), marker = fmt, label = dat_z[8], facecolors = 'white', edgecolors = navy, s = 125, 
+                                zorder = 4, linewidth = 3)
+                        for x, y in zip(xdat[np.invert(upper_lim_bool)], ydat[np.invert(upper_lim_bool)]): # Account for the fact that upper limits cannot currently be included in the MCMC likelihood
+                            ax.scatter(x, np.log10(y), marker = fmt, label = dat_z[8], c = navy, s = 125)
+                    else: 
+                        ax.scatter(xdat, np.log10(ydat), marker = fmt, label = dat_z[8], facecolors = 'white', edgecolors = navy, s = 125, 
+                                zorder = 4, linewidth = 3)
+
+        ax.invert_xaxis() 
         ax.xaxis.set_major_locator(ticker.MaxNLocator(integer=True)) # Make it so that only integers can be used in the  
-                                                                                       # axis labels                                                                            
+                                                                                    # axis labels                                                                            
         ax.yaxis.set_major_locator(ticker.MaxNLocator(integer=True)) # Make it so that only integers can be used in the  
-                                                                                       # axis labels                                                                          
-        if i%ncols != 0:
-            ax.axes.yaxis.set_ticklabels([])
-
-    # Create legend
-    legend = OrderedDict() # Avoids duplicates & ensures that the legend is in order of what people will see first
-    for ax in axs:
-        for h, l in zip(*ax.get_legend_handles_labels()):
-            legend.setdefault(l, h)
-    handles, labels = list(legend.values()), list(legend.keys())
+                                                                                    # axis labels
+        ax.set_title(fr'${round(z-z_err, 1)} \lesssim z \lesssim {round(z+z_err, 1)}$', fontsize = 20, pad = 8)
 
 
     # Text & labels
     ylabel = r'$\log_{10}(\phi_{\rm{UV}}$ [$\rm{mag}^{-1} \rm{Mpc}^{-3}$])'
     xlabel = r'$M_{\rm{UV}}$ [mag]'
-    if math.ceil((nz+1)/ncols) > 1: # This means that there's more than one row of plots
-        if (i+2)%ncols==0: # This means equal number of columns as there are axes (including the one that corresponds to the legend)
-            fig.text(0.065, 0.5, ylabel, rotation = 'vertical')
-            fig.text(0.5, 0.05, xlabel, ha = 'center')
-        elif (i+1)%ncols == 0: # This means that you've overflowed by one
-            fig.text(0.065, 0.5, ylabel, rotation = 'vertical')
-            fig.text(0.5, 0.24, xlabel, ha = 'center')
-        else:
-            print('here')
-            fig.supylabel(ylabel, x = 0.05)
-            fig.supxlabel(xlabel, y = 0.07)
-    else:
-        if nz == 1:
-            ax.set_ylabel(ylabel)
-            ax.set_xlabel(xlabel)
-        else:
-            fig.text(0.065, 0.225, ylabel, rotation = 'vertical')
-            fig.text(0.375, 0, xlabel, ha = 'center')
 
-    # Put legend outside the last axis
-    fig_ax = fig.add_subplot(gs[math.floor((i+1)/ncols), (i+1)%ncols])
-    fig_ax.axis("off")  
-    fig_ax.legend(handles, labels, loc='upper left')
-
+    # Formatting, labels
+    multicol(gs, axs, xlabel, ylabel, xlims = (np.max(MUVcenters)+0.25, np.min(MUVcenters)-0.25), ylims = (ylo, yhi), include_legend = True)
+    
     return fig
 
-def MUV_distribution(my_UVLF, zs, param_values, Mhtab):
+def PMUV(my_UVLF, param_values, Mhtab = None, zs = None, z_errs = None, MUVcenters = None, MUVwidths = None, ncols = 3, logscale = False):
     """
     Plot P(MUV|Mh) for two different redshifts given a set of UVLF parameters
     Inputs:
         my_UVLF [eMCMC UVLF object]: UVLF object used for its methods such as applying time evolution to parameter values & wrapping them in the
                                         right format for zeus21
-        zs [1darray]: <= 2 redshifts to plot for comparison
         param_values [1darray]: values of parameters to calculate MUV from Mh
         Mhtab [1darray]: log(Mh/M_odot) for plotting
+        zs [1darray]: redshfits to plot (as separate subplots on a grid)
+        z_errs [1darray]: redshift uncertainty (if None will default to 0.5)
+        MUVcenters [1darray]: centers of MUV bins to plot
+        MUVwidths [1darray]: widhts of MUV bins to plot. Defaults to 0.5 if none given
+        ncols [int]: number of columns to plot the redshift bins over
+        logscale [bool]: whether or not to use log scale for the y axis
     Outputs:
         fig, ax: Figure showing P(MUV|Mh) for different halo masses. Note that even without time-evolving parameters, the P(MUV|Mh) will look different at
         differnet redshifts due time-evolving mass accretion rates
     """
-    assert(len(zs)) <= 3, 'This routine can currently only accommodate 3 redshifts at once'
-    
-    # Create figure
-    fig = plt.figure(figsize=(12,8))            # keep same figsize for both figs
-    ax_rect  = [0.10, 0.12, 0.78, 0.80]       # left, bottom, width, height (0-1)
-    cax_rect = [0.895, 0.12, 0.04, 0.80]      # narrow right slot for cbar
-    ax = fig.add_axes(ax_rect)
-    ax.invert_xaxis()
 
-    MUV_range = np.linspace(-15, -24, 500) # Define range of MUVs to examine
+    if Mhtab is None:
+        Mhtab = np.arange(9, 13.75, 0.75)
+
+    if zs is None:
+        zs = my_UVLF.zs
+        z_errs = [dat[1] for dat in my_UVLF.data]
+    if z_errs is None:
+        z_errs = np.full_like(zs, 0.5, dtype = float)
+
+    nz = len(zs)
+    fig = plt.figure()
+    gs = GridSpec(math.ceil(nz / ncols), ncols, figure=fig)
+    plt.subplots_adjust(hspace = 0.3, wspace = 0)
+
+    Mhtab_og = my_UVLF.HMFintclass.Mhtab # Save this to reset it later. There's probably a more elegant solution I could come up with at another time
     my_UVLF.HMFintclass.Mhtab = 10**Mhtab # Set the UVLF table of halo masses to the input value
+
+    if MUVcenters is None: 
+        # Get unique x values and their corresponding errors
+        MUVcenters_lowres, MUVwidths_lowres = my_UVLF.get_all_MUV_bins() # Get coarse MUV binning
+        MUVcenters, MUVwidths = np.linspace(MUVcenters_lowres.min(), MUVcenters_lowres.max(), 1000), np.full(1000, 0.5)
+    elif MUVwidths is None:
+        MUVwidths = np.full_like(MUVcenters, 0.5)
 
     if len(Mhtab) > 1:
         # Create gradient for color-coding curves based on corresponding halo mass
         cmap, sm, boundaries = create_custom_colorbar([periwinkle, red], Mhtab)
     
-    for z, ls in zip(zs, ['-', '--', 'dotted']): # Plot curves for each redshift
-        params = my_UVLF.time_evolution(param_values, z) # Calculate how parameters evolve with redshift
-        astroparams = my_UVLF.param_wrapper(params)# Get the parameters in the right format for use with zeus21
-        SFRlist = zeus21.sfrd.SFR_II(astroparams, my_UVLF.CosmoParams, my_UVLF.HMFintclass, 10**Mhtab, z, z) # Calculate SFR
-        MUVbarlist = zeus21.UVLFs.MUV_of_SFR(SFRlist, astroparams._kappaUV) # Use SFR to calculate average MUV
-        MUVbarlist = np.fmin(MUVbarlist, zeus21.constants._MAGMAX) # Make sure that MUV doesn't exceed a set value
+    axs = []
+    all_weights = []
+    for i, (z, z_err) in enumerate(zip(zs, z_errs)): # Plot curves for each redshift
+        ax = fig.add_subplot(gs[math.floor(i/ncols), i%ncols])
+        axs.append(ax)
+        weights = my_UVLF.UVLF_wrapper(z,z_err,MUVcenters, MUVwidths, param_values, return_weights = True)
 
-        ax.plot(MUV_range[0], 0, ls = ls, color = 'black', label = f'$z={z}$') # Make invisible line for legend purposes
-
-        for sigUV, MUV_bar, Mh in zip(params[-1], MUVbarlist, Mhtab): # Plot different color-coded Gaussians for different halo masses
+        for i, Mh in enumerate(Mhtab): # Plot different color-coded Gaussians for different halo masses
             if len(Mhtab) > 1:
                 # Get color based on halo mass
                 frac = (Mh - Mhtab.min()) / (Mhtab.max() - Mhtab.min()) 
                 color = cmap(frac)
             else:
-                color = '#9689d5'
-            P = (1/(sigUV * np.sqrt(2*np.pi)))*np.exp(-(MUV_range-MUV_bar)**2/(2*sigUV**2)) # Calculate Gaussian based on MUV_bar & sig_UV
-            #ax.axvline(MUV_bar, color = turquoise, ls = 'dashed', lw = 3)
-            ax.plot(MUV_range, P, color = color, ls = ls)
+                color = periwinkle
+            ax.plot(MUVcenters, weights[i], color = color, ls = 'solid')
+            all_weights.append(weights[i])
+        ax.set_title(fr'${round(z-z_err, 1)} \lesssim z \lesssim {round(z+z_err, 1)}$', fontsize = 20, pad = 8)
+        ax.invert_xaxis()
+        if logscale:
+            ax.set_yscale('log')
+
+    all_weights = np.concatenate(all_weights)
 
     # Color bar things:
     if len(Mhtab)>1:
-        cax = fig.add_axes(cax_rect)
-        cbar = fig.colorbar(sm, cax=cax, boundaries=boundaries, ticks=Mhtab, aspect = 14)
+        cbar = fig.colorbar(sm, ax = axs, boundaries=boundaries, ticks=Mhtab, aspect = 5*math.ceil(nz/ncols))
         cbar.set_label(r'$\log_{10}{M_h}$')
 
-    # Figure labels
-    ax.set_ylabel(r'$p(M_{\rm{UV}}|M_h)$')
-    ax.set_xlabel(r'$M_{\rm{UV}}$ [mag]')
-    ax.legend(loc = 'upper left')
+        
 
-    return fig, ax
+
+    xlabel = r'$M_{\rm{UV}}$ [mag]'
+    ylabel = r'$p(M_{\rm{UV}}|M_h)$'
+    multicol(gs, axs, xlabel, ylabel, ylims = (0.9*all_weights.min(), 1.1*all_weights.max()))
+
+    my_UVLF.HMFintclass.Mhtab = Mhtab_og # Reset the Mhtab
+
+    return fig, axs
 
 def sfe_shape_diff_z(my_UVLF, param_values, zs = None, Mhtab = None, id_max = False):
     """
@@ -481,6 +487,10 @@ def sigma_Mh(my_UVLF, param_values, zs = None):
     sig_gelli = (-0.34 * Mhtab) + 4.5
     ax.plot(Mhtab, sig_gelli, linestyle = '--', color = red, label = 'Gelli+24')
 
+    # Plot min(sig)
+    min_sig = param_values[-1]
+    ax.axhline(min_sig, color = navy, label = r'$\min(\sigma_{\rm{UV}})$')
+
     # Color bar things:
     cax = fig.add_axes(cax_rect)
     cbar = fig.colorbar(sm, cax=cax, boundaries=boundaries, ticks=zs, aspect = 14)
@@ -525,14 +535,15 @@ def walkers(my_UVLF, param_values, backend_file = None, thin = 8000, burn_in = N
     # Figure stuff
     nparams = walkers.shape[-1]
     fig = plt.figure()
-    fig.set_size_inches(3*ncols, 3*math.ceil((nparams+1)/ncols))
     plt.subplots_adjust(wspace = 0.4, hspace = 0.2)
     gs = GridSpec(math.ceil((nparams+1)/ncols), ncols, figure=fig)
 
     fit_params = my_UVLF.param_data['fit'].values.astype(bool)
     
+    axs = []
     for i in range(nparams): # Iterate through the parameters
         ax = fig.add_subplot(gs[math.floor(i/ncols), i%ncols]) # Add an axis for each parameter
+        axs.append(ax)
         for j in range(len(walkers[i])):
             ax.plot(steps, walkers[:,j][:,i], color = red, ls = '-', alpha = 0.3) # Plot each walker for the given parameter
         ax.axhline(param_values[i], color = turquoise, ls = 'dashed', label = 'best fit value') # Plot the best fit value
@@ -545,13 +556,177 @@ def walkers(my_UVLF, param_values, backend_file = None, thin = 8000, burn_in = N
         ax.axvline(burn_in, color = navy, ls = '-', label = 'burn in cutoff')
     
     # Labels, etc.
-    ax.plot(0,0, color = red, ls = '-', alpha = 0.6, label = f'walkers, every {thin} steps') # get label
-    fig_ax = fig.add_subplot(gs[math.floor((i+1)/ncols), (i+1)%ncols])
-    fig_ax.axis("off")  
-    handles, labels = ax.get_legend_handles_labels() # Grab handles/labels from the real axes
-    fig_ax.legend(handles, labels, loc='center')
-    fig.supxlabel('step number', y = 0.05)
+    ax.plot(0,0.3, color = red, ls = '-', alpha = 0.6, label = f'walkers, every {thin} steps') # get label
+
+    multicol(gs, axs, xlabel = 'step number', ylabel = '', include_legend = True)
     
+    return fig
+
+def PMh(my_UVLF, param_values, MUV_range = None, z_range = None, Mhtab=None, z_err=0.5, ncols=3):
+    """
+    Calculate & plot the probability distribution of host halo mass for galaxies of a given MUV
+    
+    :param my_UVLF: [eMCMC UVLF object] UVLF object used for its methods such as applying time evolution to parameter values & wrapping them in the
+                                        right format for zeus21
+    :param param_values: [1darray] of fit parameter values
+    :param MUV_range: [1darray] list of MUVs to calculate the probability distribution for (separate from MUVcenters which is used as an underlying grid-- this should be a small number of MUVs). If None,
+                    will default to a subsection of the MUVs in my_UVLF MUVcenters
+    :param z_range: [1darray] Redshifts to plot (will appear as different subplots). If none are specified, will default to the redshifts contained in my_UVLF
+    :param Mhtab: [1darray] Range of halo masses to consider (in log_10(M/M_odot)). If none are specified, will default to Mhtab contained within my_UVLF (which is a large range of masses)
+    :param z_err: [float] uncertainty on redshift measurements
+    :param ncols: [int] number of columns to plot the subplots over
+
+    Returns:
+        Figure showing the probability distribution of halo mass for a given galaxy MUV, given model parameters passed as param_values
+    """
+
+    MUVcenters, MUVwidths = my_UVLF.get_all_MUV_bins()
+
+    if MUV_range is None:
+        MUV_range = np.arange(int(MUVcenters.min()), int(MUVcenters.max())+1.5, 1.5)
+
+    if z_range is None:
+        z_range = my_UVLF.zs
+
+    nz = len(z_range)
+    fig = plt.figure()
+    gs = GridSpec(math.ceil(nz / ncols), ncols, figure=fig)
+    plt.subplots_adjust(wspace=0.3, hspace=0.3)
+
+    # Colormap
+    print(MUV_range)
+    if len(MUV_range) > 1:
+        cmap, sm, boundaries = create_custom_colorbar([orange, navy], MUV_range)
+
+    if Mhtab is not None:
+        Mhtab = 10**Mhtab
+        Mhtab_og = my_UVLF.HMFintclass.Mhtab # To be able to reset later
+        my_UVLF.HMFintclass.Mhtab = Mhtab
+    else:
+        Mhtab_og = None
+        Mhtab = my_UVLF.HMFintclass.Mhtab
+    minMUV = my_UVLF.calc_min_MUV(Mhtab)
+
+    axs = []
+
+
+    for iz, z in enumerate(z_range): # Add the log likelihoods together for each redshift. The log likelihood is just a sum over all the points
+        # anyways, so this makes sense
+
+        ax = fig.add_subplot(gs[math.floor(iz/ncols), iz%ncols])
+        axs.append(ax)
+
+        ax.set_title(f'$z \simeq {z}$')
+
+        weights = my_UVLF.UVLF_wrapper(z,z_err,MUVcenters, MUVwidths, param_values, return_weights = True)
+
+
+        # HMF prior (normalized)
+        hmf = my_UVLF.HMFintclass.HMF_int(Mhtab, z)
+        PMh = hmf*Mhtab*np.log(10)/ np.trapz(hmf*Mhtab*np.log(10), np.log10(Mhtab)) # Looks weird because it's an integral over logMh. See notes from 2/9 where I derive this
+
+        # Loop over MUV values for color-coded lines
+        for MUV in MUV_range:
+
+            iMUV = np.argmin(np.abs(MUVcenters-MUV))
+
+            PMUV_given_Mh = weights[:, iMUV]
+            
+            # numerator of Bayes theorem
+            numerator= PMUV_given_Mh * PMh 
+
+            # normalize posterior
+            posterior = numerator / np.trapz(numerator, np.log10(Mhtab))
+
+            # Color
+            if len(MUV_range) > 1:
+                frac = (MUV - min(MUV_range)) / (max(MUV_range) - min(MUV_range))
+                color = cmap(frac)
+            else:
+                color = navy
+
+            ax.plot(np.log10(Mhtab), posterior, color=color, ls='-')
+
+    multicol(gs, axs = axs, xlabel = r'$\log_{10} M_h / M_\odot$', ylabel = r'$p(M_h \mid M_{\rm UV})$')
+
+    # Colorbar
+    cbar = fig.colorbar(sm, ax=axs, boundaries=boundaries, ticks=MUV_range, aspect=4*math.ceil(nz/ncols))
+    cbar.set_label(r'$M_{\rm{UV}}$')
+
+    if Mhtab_og is not None:
+        my_UVLF.HMFintclass.Mhtab = Mhtab_og # Reset Mhtab if it's been altered
+
+    return fig
+
+def bias(my_UVLF, compare_fits, fit_labels, ncols = 3, z_plot=None, z_errs=None):
+    """
+    Plot bias vs. bias data
+    
+    :param my_UVLF: [eMCMC UVLF object] UVLF object used for its methods such as applying time evolution to parameter values & wrapping them in the
+                                        right format for zeus21
+    :param compare_fits: [list of lists] different fits to compare the bias calculations for
+    :param fit_labels: [list] labels for each of compare_fits
+    :param ncols: [int] number of columns for plotting
+    :param z_plot: [list] redshifts to plot. If None, will default to the redshifts of the data
+    :param z_errs: [list] redshift uncertainty. If None, will default to the zerr of the data or 0.5
+    """
+
+    if z_plot is None:
+        z_plot = [dat[0] for dat in my_UVLF.data] # Get the redshifts that correspond to the input data
+        z_errs = [dat[1] for dat in my_UVLF.data] # Get redshift error from data
+        dat = my_UVLF.data
+    else:
+        if z_errs is None:
+            z_errs = np.full_like(z_plot, 0.5, dtype = float) # If the user provides z but not zerr, default to 0.5 for each redshift
+        if type(z_plot) == list:
+            z_plot = np.array(z_plot)
+        if type(z_errs) == list:
+            z_errs = np.array(z_errs)
+
+    nz = len(z_plot)
+    fig = plt.figure()
+    gs = GridSpec(math.ceil((nz+1)/ncols), ncols, figure=fig)
+    plt.subplots_adjust(wspace = 0, hspace = 0.3)
+
+    MUVcenters, MUVwidths = my_UVLF.get_all_MUV_bins()
+
+    # Hard code bias data for now
+    bias_data = np.loadtxt('/Users/eb35267/Desktop/code/home/data/bias.txt', unpack = True)
+
+    axs = []
+    all_bias = []
+    for i, (z, zerr) in enumerate(zip(z_plot, z_errs)):
+        ax = fig.add_subplot(gs[math.floor(i/ncols), i%ncols])
+        axs.append(ax)
+        z_bias = []
+        for (fit, label, color, ls) in zip(compare_fits, fit_labels, [turquoise, yellow, orange, green], ['solid', 'dashdot', 'dashed', 'dotted']): 
+            _, bias = my_UVLF.UVLF_wrapper(z, zerr, MUVcenters, MUVwidths, fit, get_bias = True)
+            z_bias.append(bias)
+            ax.plot(MUVcenters, bias, ls = ls, color = color, label = label)
+
+        ax.set_title(fr'${round(z-zerr, 1)} \lesssim z \lesssim {round(z+zerr, 1)}$', fontsize = 20, pad = 8)
+        ax.invert_xaxis()
+        all_bias.append(np.concatenate(z_bias))
+        bias_inds = ((bias_data[0] < z + zerr) & (bias_data[0] > z - zerr))
+        ax.errorbar(bias_data[1][bias_inds], bias_data[2][bias_inds], yerr = bias_data[3][bias_inds], fmt = 'o', markeredgewidth=0, 
+                    color = navy, label = 'Muñoz+23 effective bias', markersize = 9)
+
+    xlabel = r'$M_{\rm{UV}}$ [mag]'
+    ylabel = r'$b(M_{\rm{UV}})$'
+
+    # Flatten all ydat values from sorted_data to get the min and max
+    all_ydat = np.concatenate([np.concatenate([ds[3] for ds in z_separated])  # ds[3] is ydat
+                                for z_separated in my_UVLF.sorted_data])
+
+    all_bias = np.concatenate(all_bias)
+    ylims = (np.min(all_bias)-0.25, np.max(all_bias)+0.25)
+    
+    # Formatting
+    multicol(gs, axs, xlabel, ylabel, include_legend = True, ylims=ylims)
+
+    if plot_bias:
+        bias_data = np.loadtxt('/Users/eb35267/Desktop/code/home/data/bias.txt', unpack = True)
+
     return fig
 
 
@@ -685,5 +860,58 @@ class HandlerStackedLine(HandlerLine2D): # Inherits from the HandlerLine2D class
         # Override the typical create_artists function in HandlerLine2D; use this one instead
         return [Line2D([xdescent, xdescent + width], [ydescent + (i-0.3) * 6] * 2, color=self.colors[i], transform=trans)
                 for i in range(len(self.colors))]
+    
+
+def multicol(gs, axs, xlabel, ylabel, xlims = None, ylims = None, include_legend = False):
+    """
+    Helper function for formatting multi-column plots.
+    
+    :param gs: matplotlib GridSpec object
+    :param axs: list of axes in the figure
+    :param xlabel: x axis label text
+    :param ylabel: y axis label text
+    :param xlims: tuple with the upper and lower x limit to be imposed for each subplot
+    :param ylims: tuple with the upper and lower y limit to be imposed for each subplot. 
+    :param include_legend: boolean-- whether or not to include a legend. Relies on there being labels in the axes within axs
+    """
+    
+    N = len(axs)
+    if include_legend:
+        N_inc_leg = N+1
+    else:
+        N_inc_leg = N
+
+    # Sizing & spacing
+    fig = gs.figure
+    fig.set_size_inches(4*gs.ncols, 4*math.ceil(N_inc_leg/gs.ncols))
+
+    # Formatting axis ticks
+    for i, ax in enumerate(axs): 
+        if xlims is not None:
+            ax.set_xlim(*xlims)
+        if ylims is not None:
+            ax.set_ylim(*ylims)                                                                       
+            if i%gs.ncols != 0:
+                ax.axes.yaxis.set_ticklabels([]) # Only include y axis tick labels on the furthest left side if all axes will have the same y limits
+
+    # Text & labels
+    bbox = Bbox.union([ax.get_position() for ax in axs]) # Define the positions of all the axes
+    xcenter = bbox.x0 + bbox.width / 2
+    ycenter = bbox.y0 + bbox.height / 2
+    fig.text(xcenter, bbox.y0 - 0.02, xlabel, ha='center', va='top')
+    fig.text(bbox.x0 - 0.05, ycenter, ylabel, ha='center', va='center', rotation='vertical')
+
+    # Create legend & place it outside the axes
+    if include_legend:
+        legend = OrderedDict() # Avoids duplicates & ensures that the legend is in order of what people will see first
+        for ax in axs:
+            for h, l in zip(*ax.get_legend_handles_labels()):
+                legend.setdefault(l, h)
+        handles, labels = list(legend.values()), list(legend.keys())
+
+        # Placement
+        fig_ax = fig.add_subplot(gs[math.floor((N)/gs.ncols), (N)%gs.ncols])
+        fig_ax.axis("off")  
+        fig_ax.legend(handles, labels, loc='upper center')
     
     

@@ -69,7 +69,7 @@ def get_sorted(file_names, data_labels = None, include_zs = None, include_in_lik
             zlistindex = data[0] == 1.0*z
             datarr = [z,data[6][zlistindex], data[1][zlistindex], data[3][zlistindex], data[4][zlistindex], np.abs(data[5][zlistindex]), 
                       #Use absolute value because the lower error bar is given as negative (centered on ydat)
-                      data[2][zlistindex], label, include]
+                      data[2][zlistindex], data[7][zlistindex], label, include]
             z_separated.append(datarr)
         sorted_data.append(z_separated)
 
@@ -79,6 +79,7 @@ def reduce(sorted_data):
     """
     Remove the sorting by dataset and just sort by redshift. Make sure the data go in order of MUV. The MCMC doesn't care where the data comes
     from, so this is for that.
+    Also removes data that is just an upper limit because that hasn't been implemented yet
     Inputs:
         sorted_data [list]: from get_sorted, data sorted by dataset and redshift.
     Returns:
@@ -103,7 +104,10 @@ def reduce(sorted_data):
         yerr_upper = np.concatenate([dat[4] for dat in zbin])[sorting]
         yerr_lower = np.concatenate([dat[5] for dat in zbin])[sorting]
         dMUV = np.concatenate([dat[6] for dat in zbin])[sorting]
-        reduced_data.append([z, dz, MUVs, phis, yerr_upper, yerr_lower, dMUV])
+        include_bool = np.invert(np.concatenate([dat[7] for dat in zbin])[sorting].astype('bool')) # This excludes data that's only an upper limit
+        if not all(include_bool):
+            print('the inclusion of upper limits in the likelihood hasn\'t been implemented-- those points will be removed')
+        reduced_data.append([z, dz, MUVs[include_bool], phis[include_bool], yerr_upper[include_bool], yerr_lower[include_bool], dMUV[include_bool]])
 
 
     return reduced_data
