@@ -251,20 +251,24 @@ class UVLF():
                                               Mc=10**log10Mcstar,alphastar=alphastar, betastar=betastar, sigmaUV = sigmaUV)
         return astroparams
 
-    def get_fit(self, backend_file = None, burn_in = None, exclude_unfit = True, excluded_params = [],):
+    def get_fit(self, backend_file = None, burn_in = None, exclude_unfit = True, include_params = None,):
         """
         Get samples and best fit values from MCMC samples (or, if the parameter is not fit, return the default value).
         Inputs:
             backend_file [str]: .h5 file containing previously saved chain
             burn_in [int]: number of steps to discard as burnin
             exclude_unfit [bool]: whether or not to exclude parameters that are set by default (and not by the MCMC chain) 
-            excluded_params [list]: any parameters you don't want to return
+            include_params [list]: use if you only want to return certain parameters. Anything not listed will not be returned. If None, all parameters will be
+                                    returned
         Outputs:
             samples [Ndarray]: MCMC chain samples
             best_fit [list]: ordered list of best fit parameters (or default parameters where applicable)
             bounds [Nx2 array]: Upper and lower bounds on parameter values that correspond to the 16th & 84th percentile 
             all_labels [list]: TeX representation of parameters, used with make_table()
         """
+        if include_params is None:
+            include_params = self.param_data.T.keys()
+
         if burn_in is None: # Standard value of burn in
             burn_in = 8000
         
@@ -278,14 +282,13 @@ class UVLF():
 
         # Get highest probability sample
         best_fit_data = samples[np.argmax(log_prob)]
-        print(best_fit_data)
         i = 0
         best_fit = []
         all_labels = []
         exclude_indices = []
     
         for index, key in enumerate(self.param_data.T.keys()):
-            if key in excluded_params:
+            if key not in include_params:
                 if index not in self.notfit: # Make sure you don't double count if the parameter wasn't fit anyways
                     exclude_indices.append(i)
                     i+=1
@@ -416,14 +419,14 @@ def get_default_df():
         'dalphadz':{'fit': True, 'value': 0,  'lower': -0.5, 'upper': 0.5, 'label': r"$d\alpha/dz$"},
         'beta':    {'fit': True, 'value': -0.5,  'lower': -2, 'upper': 0, 'label': r"$\beta$"},
         'dbetadz': {'fit': True, 'value': 0,  'lower': -0.5, 'upper': 0.5, 'label': r"$d\beta/dz$"},
-        'logMc':   {'fit': True, 'value': 12, 'lower': 9, 'upper': 16, 'label': r'$\log(M_c)$'},
+        'logMc':   {'fit': True, 'value': 12, 'lower': 10, 'upper': 16, 'label': r'$\log(M_c)$'},
         'dlogMcdz':{'fit': True, 'value': 0,  'lower': -0.5, 'upper': 0.5, 'label': r'$d\log(M_c)/dz$'},
         'loge':    {'fit': True, 'value': -0.5, 'lower': -4.5, 'upper': 0, 'label': r"$\log(\epsilon_{\star})$"},
         'dlogedz': {'fit': True, 'value': 0,  'lower': -0.5, 'upper': 0.5, 'label': r'$d\log(\epsilon_{\star})/dz$'},
         'sig':     {'fit': True, 'value': 0, 'lower': 0, 'upper': 5, 'label': r'$\sigma_{\rm{UV}, M_c}$'},
         'dsigdz':  {'fit': True, 'value': 0,  'lower': -0.75, 'upper': 0.5, 'label': r'$d\sigma_{\rm{UV}}/dz$'},
-        'dsigdlogM':  {'fit': True, 'value': 0,  'lower': -1.5, 'upper': 0.5, 'label': r'$d\sigma_{\rm{UV}}/d\log(M_{h})$'},
-        'min_sig': {'fit': True, 'value': 0.5, 'lower': 0.3, 'upper': 1.5, 'label': r'$\min(\sigma_{\rm{UV}}$)'}
+        'dsigdlogM':  {'fit': True, 'value': 0,  'lower': -2, 'upper': 0.5, 'label': r'$d\sigma_{\rm{UV}}/d\log(M_{h})$'},
+        'min_sig': {'fit': True, 'value': 0.5, 'lower': 0.3, 'upper': 2.5, 'label': r'$\min(\sigma_{\rm{UV}}$)'}
     }
 
     return pd.DataFrame(default_values).T

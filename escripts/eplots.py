@@ -72,7 +72,7 @@ def percent_diff(x, y0, y1, labels, other_data = None):
 
     return fig, ax
 
-def make_corner(my_UVLF, backend_file = None, true_vals = None, title = '', burn_in = None, excluded_params = [], 
+def make_corner(my_UVLF, backend_file = None, true_vals = None, title = '', burn_in = None, include_params = None, 
                 sample_color = red, truth_color = turquoise):
     """
     Plot a corner plot, adding true values if any are given.
@@ -83,7 +83,7 @@ def make_corner(my_UVLF, backend_file = None, true_vals = None, title = '', burn
         true_vals [1darray]: optional true values for each parameter. Don't include true values for parameters in excluded_params
         title [str]: plot title
         burn_in [int]: number of samples to discard as burnin
-        excluded_params [list]: list of parameters to exclude from the plot
+        include_params [list]: use if you only want to plot certain parameters. Any parameter not listed will not be plotted
         sample_color [str]: color for the samples
         truth_color [str]: color to plot the best fit
     Returns:
@@ -91,7 +91,7 @@ def make_corner(my_UVLF, backend_file = None, true_vals = None, title = '', burn
     """
     
     # Get samples & parameter labels, excluding parameters that weren't fit
-    samples, _, _, labels = my_UVLF.get_fit(backend_file, exclude_unfit = True, burn_in = burn_in, excluded_params = excluded_params) 
+    samples, _, _, labels = my_UVLF.get_fit(backend_file, exclude_unfit = True, burn_in = burn_in, include_params = include_params) 
     
 
     if true_vals is None:
@@ -723,9 +723,6 @@ def bias(my_UVLF, compare_fits, fit_labels, ncols = 3, z_plot=None, z_errs=None)
     
     # Formatting
     multicol(gs, axs, xlabel, ylabel, include_legend = True, ylims=ylims)
-
-    if plot_bias:
-        bias_data = np.loadtxt('/Users/eb35267/Desktop/code/home/data/bias.txt', unpack = True)
 
     return fig
 

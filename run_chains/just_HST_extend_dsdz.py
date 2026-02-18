@@ -5,7 +5,7 @@ import os
 import dataframe_image as dfi
 
 # Name this run
-run_name = 'just_HST_extend_dsdz'
+run_name = 'just_HST'
 
 # Input data
 file_names = ['/Users/eb35267/Desktop/code/home/data/Bouwens2021_low_z.txt']

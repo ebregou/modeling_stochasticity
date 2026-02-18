@@ -5,7 +5,7 @@ import os
 import dataframe_image as dfi
 
 # Name this run
-run_name = 'all_params_free'
+run_name = 'all_params_free_narrowed'
 
 # Input data
 file_names = ['/Users/eb35267/Desktop/code/home/data/Bouwens2021_low_z.txt',
@@ -16,7 +16,9 @@ data_labels = ['Bouwens+21', 'Donnan+24']
 params = eMCMC.build_param_data({'beta': {'fit': False, 'value': -1.17}, 'dbetadz': {'fit': False, 'value': 0}})
 
 # Adjust ICs
-lowers, uppers = None, None
+lowers, uppers = [ 0.83554149,  0.13825213, 10.        , -0.16263974, -2.7057013 ,
+        0.11912   ,  0.        , -0.21387685, -1.94926985,  0.52154959], [ 2.42445851,  0.25576319, 11.92073524,  0.14263974, -2.05882106,
+        0.32090348,  1.0579183 , -0.11344445, -0.97073015,  2.33845041]
 
 # Run MCMC ---------------------------------------------------------------------------------------------------------------------------------------------
 

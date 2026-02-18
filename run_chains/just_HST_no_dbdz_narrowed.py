@@ -5,18 +5,22 @@ import os
 import dataframe_image as dfi
 
 # Name this run
-run_name = 'all_params_free'
+run_name = 'just_HST_no_dbdz_narrowed'
 
 # Input data
-file_names = ['/Users/eb35267/Desktop/code/home/data/Bouwens2021_low_z.txt',
-              '/Users/eb35267/Desktop/code/home/data/Donnan24_limit_z.txt']
-data_labels = ['Bouwens+21', 'Donnan+24']
+file_names = ['/Users/eb35267/Desktop/code/home/data/Bouwens2021_low_z.txt']
+data_labels = ['Bouwens+21']
 
 # Initialize parameters
-params = eMCMC.build_param_data({'beta': {'fit': False, 'value': -1.17}, 'dbetadz': {'fit': False, 'value': 0}})
+params = eMCMC.build_param_data({'dbetadz': {'fit': False, 'value': 0}})
 
 # Adjust ICs
-lowers, uppers = None, None
+lowers, uppers = [ 0.42655657, -0.06815712, -1.76760703, 11.47745808, -0.06774912,
+       -1.50427125, -0.14429918,  0.10670283, -0.56963539, -0.61605578,
+        0.44824927], [ 6.93997409e-01,  8.27432567e-03, -7.02742309e-01,  1.21609919e+01,
+        1.11064307e-01, -1.06779727e+00, -6.40815740e-02,  7.55287776e-01,
+        3.69635392e-01,  2.38097521e-01,  8.04502945e-01]
+
 
 # Run MCMC ---------------------------------------------------------------------------------------------------------------------------------------------
 
@@ -34,7 +38,7 @@ backend_filename = f'{folder}/samples.h5'
 # Make the UVLF object
 my_UVLF = eMCMC.UVLF(sorted_data, params, backend_filename = backend_filename)
 
-# Assign uppres & lowers if necessary
+# Get the ICs
 if lowers is not None:
     ICs = my_UVLF.generate_ICs(lowers, uppers)
 else:

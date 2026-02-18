@@ -5,22 +5,26 @@ import os
 import dataframe_image as dfi
 
 # Name this run
-run_name = 'Gelli_comparison'
+run_name = 'just_HST_no_dbdz'
 
-# Get data
+# Input data
 file_names = ['/Users/eb35267/Desktop/code/home/data/Bouwens2021_low_z.txt']
 data_labels = ['Bouwens+21']
-sorted_data = edata.get_sorted(file_names, data_labels)
 
 # Initialize parameters
-params = eMCMC.build_param_data({'beta':{'fit': False, 'value': -0.54}, 'dbetadz':{'fit':False, 'value':0}, 'dsigdz':{'fit':False, 'value':0},
-                                 'sig':{'fit':False, 'value': 0.76}, 'dsigdlogM': {'fit':False, 'value': -0.34}})
+params = eMCMC.build_param_data({'dbetadz': {'fit': False, 'value': 0}})
+
+# Adjust ICs
+lowers, uppers = None, None
 
 
-#Run MCMC chain ---------------------------------------------------------------------------------------------------------------------------------
+# Run MCMC ---------------------------------------------------------------------------------------------------------------------------------------------
+
+# Get the data
+sorted_data = edata.get_sorted(file_names, data_labels)
 
 # Create backend file
-folder = f'/Users/eb35267/Desktop/code/home/figures/{run_name}'
+folder = f'/Users/eb35267/Desktop/code/figures/{run_name}'
 if not os.path.exists(folder):
     os.makedirs(folder)
 else:
@@ -30,11 +34,16 @@ backend_filename = f'{folder}/samples.h5'
 # Make the UVLF object
 my_UVLF = eMCMC.UVLF(sorted_data, params, backend_filename = backend_filename)
 
+# Get the ICs
+if lowers is not None:
+    ICs = my_UVLF.generate_ICs(lowers, uppers)
+else:
+    ICs = None
+
 # Run the chain
-my_UVLF.run_MCMC()
+my_UVLF.run_MCMC(ICs = ICs) # If ICs is None this will assign them based on the upper & lower limits on the parameters
 
-#---------------------------------------------------------------------------------------------------------------------------------------------
-
+# Make & save figures ---------------------------------------------------------------------------------------------------------------------------------------------
 walkers, best_fit, bounds, param_labels = my_UVLF.get_fit()
 
 # Corner plot
@@ -56,6 +65,18 @@ sfe_over_z.savefig(f'{folder}/sfe_over_z.png', bbox_inches = 'tight')
 # Plot walkers & burn-in
 walker_fig = eplots.walkers(my_UVLF, best_fit)
 walker_fig.savefig(f'{folder}/walkers.png', bbox_inches='tight')
+
+# Plot sigmaUV vs. Mh at different redshifts
+sigMh_fig = eplots.sigma_Mh(my_UVLF, best_fit)
+sigMh_fig.savefig(f'{folder}/sigvsMh.png', bbox_inches='tight')
+
+# Plot P(MUV|Mh) at a central redshifts
+PMUV, _ = eplots.PMUV(my_UVLF, best_fit)
+PMUV.savefig(f'{folder}/PMUV.png', bbox_inches='tight')
+
+# Plot P(Mh|MUV) at different redshifts
+PMh = eplots.PMh(my_UVLF, best_fit)
+PMh.savefig(f'{folder}/PMh.png', bbox_inches='tight')
 
 # Parameter table
 table = eplots.make_table([best_fit], param_labels, ['best fit'], [bounds])

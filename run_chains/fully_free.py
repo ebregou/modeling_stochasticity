@@ -5,43 +5,45 @@ import os
 import dataframe_image as dfi
 
 # Name this run
-run_name = 'force_sig_small'
+run_name = 'fully_free'
 
-# Get data
+# Input data
 file_names = ['/Users/eb35267/Desktop/code/home/data/Bouwens2021_low_z.txt',
               '/Users/eb35267/Desktop/code/home/data/Donnan24_limit_z.txt']
 data_labels = ['Bouwens+21', 'Donnan+24']
-sorted_data = edata.get_sorted(file_names, data_labels)
 
 # Initialize parameters
-params = eMCMC.build_param_data({'beta': {'fit':False, 'value': -0.54}, 'dbetadz': {'fit': False, 'value':0}, 'dsigdz':{'fit': False, 'value':0},
-                                 'dsigdlogM':{'fit':False, 'value':0}, 'sig': {'fit': False, 'value': 0.3}})
+params = eMCMC.build_param_data({})
 
+# Adjust ICs
+lowers, uppers = None, None
 
-#Run MCMC chain ---------------------------------------------------------------------------------------------------------------------------------
+# Run MCMC ---------------------------------------------------------------------------------------------------------------------------------------------
+
+# Get the data
+sorted_data = edata.get_sorted(file_names, data_labels)
 
 # Create backend file
-folder = f'/Users/eb35267/Desktop/code/home/figures/{run_name}'
+folder = f'/Users/eb35267/Desktop/code/figures/{run_name}'
 if not os.path.exists(folder):
     os.makedirs(folder)
 else:
     print(f'Data in {folder} will be overwritten')
-backend_filename = f'{folder}/samples.h5'
+backend_filename = f'/Users/eb35267/Desktop/code/temp/samples_{run_name}.h5'
 
 # Make the UVLF object
 my_UVLF = eMCMC.UVLF(sorted_data, params, backend_filename = backend_filename)
 
-# # Get ICs to sample a sub-region of parameter space
-# lowers = [0.58, -0.03, 10.85, -0.03, -1.06, -0.06, 0.11, 0.07, -2.15]
-# uppers = [0.95, 0.15, 12.55, 0.14, -0.87, 0.01, 0.93, 0.32, 0.37]
-# ICs = eMCMC.generate_ICs(lowers, uppers, my_UVLF.nwalkers)
+# Assign uppres & lowers if necessary
+if lowers is not None:
+    ICs = my_UVLF.generate_ICs(lowers, uppers)
+else:
+    ICs = None
 
-# # Run the chain
-# my_UVLF.run_MCMC(ICs = ICs)
-my_UVLF.run_MCMC()
+# Run the chain
+my_UVLF.run_MCMC(ICs = ICs) # If ICs is None this will assign them based on the upper & lower limits on the parameters
 
-#---------------------------------------------------------------------------------------------------------------------------------------------
-
+# Make & save figures ---------------------------------------------------------------------------------------------------------------------------------------------
 walkers, best_fit, bounds, param_labels = my_UVLF.get_fit()
 
 # Corner plot
@@ -68,9 +70,19 @@ walker_fig.savefig(f'{folder}/walkers.png', bbox_inches='tight')
 sigMh_fig = eplots.sigma_Mh(my_UVLF, best_fit)
 sigMh_fig.savefig(f'{folder}/sigvsMh.png', bbox_inches='tight')
 
+# Plot P(MUV|Mh) at a central redshifts
+PMUV, _ = eplots.PMUV(my_UVLF, best_fit)
+PMUV.savefig(f'{folder}/PMUV.png', bbox_inches='tight')
+
+# Plot P(Mh|MUV) at different redshifts
+PMh = eplots.PMh(my_UVLF, best_fit)
+PMh.savefig(f'{folder}/PMh.png', bbox_inches='tight')
+
 # Parameter table
 table = eplots.make_table([best_fit], param_labels, ['best fit'], [bounds])
 dfi.export(table, f'{folder}/table.png', table_conversion = 'matplotlib', use_mathjax = True, dpi = 200)
+
+os.replace(backend_filename, f'{folder}/samples.h5') # Move the h5 file into its directory once the run is done
 
 
 

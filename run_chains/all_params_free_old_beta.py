@@ -5,7 +5,7 @@ import os
 import dataframe_image as dfi
 
 # Name this run
-run_name = 'all_params_free'
+run_name = 'all_params_free_old_beta'
 
 # Input data
 file_names = ['/Users/eb35267/Desktop/code/home/data/Bouwens2021_low_z.txt',
@@ -13,7 +13,7 @@ file_names = ['/Users/eb35267/Desktop/code/home/data/Bouwens2021_low_z.txt',
 data_labels = ['Bouwens+21', 'Donnan+24']
 
 # Initialize parameters
-params = eMCMC.build_param_data({'beta': {'fit': False, 'value': -1.17}, 'dbetadz': {'fit': False, 'value': 0}})
+params = eMCMC.build_param_data({'beta': {'fit': False, 'value': -0.54}, 'dbetadz': {'fit': False, 'value': 0}})
 
 # Adjust ICs
 lowers, uppers = None, None
@@ -29,7 +29,7 @@ if not os.path.exists(folder):
     os.makedirs(folder)
 else:
     print(f'Data in {folder} will be overwritten')
-backend_filename = f'{folder}/samples.h5'
+backend_filename = f'/Users/eb35267/Desktop/code/temp/samples_{run_name}.h5'
 
 # Make the UVLF object
 my_UVLF = eMCMC.UVLF(sorted_data, params, backend_filename = backend_filename)
@@ -81,6 +81,8 @@ PMh.savefig(f'{folder}/PMh.png', bbox_inches='tight')
 # Parameter table
 table = eplots.make_table([best_fit], param_labels, ['best fit'], [bounds])
 dfi.export(table, f'{folder}/table.png', table_conversion = 'matplotlib', use_mathjax = True, dpi = 200)
+
+os.replace(backend_filename, f'{folder}/samples.h5') # Move the h5 file into its directory once the run is done
 
 
 
