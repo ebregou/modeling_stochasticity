@@ -86,7 +86,7 @@ def reduce(sorted_data):
         reduced_data [list]: data sorted by just redshift, ordered by MUV
     """
     reduced_data = []
-    sorted_data
+
     for zbin in sorted_data:
         # Ensure that only data labeled for inclusion in the MCMC likelihood gets in:
         zbin = [zbin_data for zbin_data in zbin if zbin_data[-1]]

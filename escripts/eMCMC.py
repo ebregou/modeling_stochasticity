@@ -89,25 +89,27 @@ class UVLF():
             return 0.0  # log(1)
         return -np.inf  # log(0)
         
-    def log_like(self, paramvector, alt_data = None):
+    def log_like(self, paramvector, alt_data = None, return_by_z = False):
         """
         Calculate log likelihood
         Inputs:
             paramvector [1darray]: values of parameters
             alt_data [Ndarray]: alternative data to input if you don't want to use self.data (in case you want to calculate log_like over a diff.
                                 redshift range than you originally fit to)
+            return_by_z [bool]: whether or not to also return a list of log likelihoods, broken down by each redshift
         Returns:
             loglike_curr [float]: log likelihood of the data given the model parameters
         """
         loglike_curr = 0.0
+        log_like_z = np.zeros_like(self.zs)
 
         # self.data has all the z & UVLF data
         if alt_data is not None:
             data = alt_data
         else:
             data = self.data
-            
-        for dataarrayz in data: # Add the log likelihoods together for each redshift. The log likelihood is just a sum over all the points
+        
+        for i, dataarrayz in enumerate(data): # Add the log likelihoods together for each redshift. The log likelihood is just a sum over all the points
             # anyways, so this makes sense
             
             zdat, zerr, xdat, ydat, yerr_upper, yerr_lower, xerr = edata.decompose(dataarrayz)
@@ -119,9 +121,12 @@ class UVLF():
             yerr_asymmetrical = np.array([yerr_upper[i] if uvlftheory[i] > ydat[i] else yerr_lower[i] for i in range(len(ydat))])
 
             # this formula is just proportional to the natural log of a Gaussian
-            loglike_curr += -np.sum((ydat - uvlftheory)**2/(2.0 * yerr_asymmetrical**2))
+            log_like_z[i] = -np.sum((ydat - uvlftheory)**2/(2.0 * yerr_asymmetrical**2))
 
-        return loglike_curr
+        if return_by_z:
+            return log_like_z
+        
+        return np.sum(log_like_z)
 
     def UVLF_wrapper(self, zcenter, zwidth, MUVcenters, MUVwidths, paramvector, return_weights = False, get_bias = False):
         """

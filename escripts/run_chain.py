@@ -56,7 +56,7 @@ ev_fig = eplots.evolving_UVLF_fit(my_UVLF)
 ev_fig.savefig('evolving_UVLF.png')
 
 # SFE(Mh) for different z
-sfe_over_mh = eplots.sfe_shape_diff_z(my_UVLF, best_fit)
+sfe_over_mh, _ = eplots.sfe_shape_diff_z(my_UVLF, best_fit)
 sfe_over_mh.savefig('sfe_over_mh.png')
 
 # SFE(z) for different Mh at z = 0

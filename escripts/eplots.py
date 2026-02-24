@@ -107,7 +107,7 @@ def make_corner(my_UVLF, backend_file = None, true_vals = None, title = '', burn
 def evolving_UVLF_fit(my_UVLF, backend_file = None, z_plot = None, z_errs = None, plot_from_chain = True, nsamples = 100, 
                       
                       comparison_fits = [], comparison_labels = [], 
-                      ncols = 3, title = 'UVLF data vs. MCMC fit', burn_in = None):
+                      ncols = 3, burn_in = None, show_chi2 = True):
     """
     Plot the UVLF at different redshifts
     Inputs:
@@ -122,8 +122,8 @@ def evolving_UVLF_fit(my_UVLF, backend_file = None, z_plot = None, z_errs = None
         comparison_fits [list of lists]: lists of parameter values that will be used to create comparison UVLFs
         comparison_labels [list of strs]: labels that correspond to the parameter values in comparison_fits, for the legend
         ncols [int]: number of columns to plot
-        title [str]: overarching title of the plot
         burn_in [int]: number of samples to discard as burnin. If None, the default value will be used (see UVLF.get_fit())
+        show_chi2 [bool]: whether or not to show the chi squared of the fit(s). Does not apply if plot_from_chain is True
     Outputs:
         Figure showing the UVLF at different redshfits
     """
@@ -196,14 +196,19 @@ def evolving_UVLF_fit(my_UVLF, backend_file = None, z_plot = None, z_errs = None
             ax.plot(MUVcenters, np.log10(my_UVLF.UVLF_wrapper(z, z_err, MUVcenters, MUVwidths, best_fit)), color = red, linestyle = '-', 
                                            zorder = 0, label = fr'best fit, $\chi^2 = {chi2:.0f}$', lw = 5)
             
-            ax.plot([0], [0], color = red, alpha = 0.1, label = 'sampled fits', linestyle = '-', lw = 5) # Create the label for the samples
+            ax.plot([0], [0], color = red, alpha = 0.1, label = f'{nsamples} samples from chain', linestyle = '-', lw = 5) # Create the label for the samples
 
         # Plot comparison fits
         for fit, chi2_fit, label, color, ls in zip(comparison_fits, chi2_comparison, comparison_labels, 
-                                                   [turquoise, yellow, orange, green], 
+                                                   [orange, green],
+                                                   #[turquoise, yellow, orange, green], 
                                         ['solid', 'dashdot', 'dashed', 'dotted']):
+            if show_chi2:
+                fit_label = fr'{label}, $\chi^2 = {chi2_fit:.0f}$'
+            else:
+                fit_label = f'{label}'
             ax.plot(MUVcenters, np.log10(my_UVLF.UVLF_wrapper(z,z_err,MUVcenters, MUVwidths,fit)), color = color, 
-                       label = fr'{label}, $\chi^2 = {chi2_fit:.0f}$', linestyle = ls, zorder = 1)
+                       label = fit_label, linestyle = ls, zorder = 1)
         
         # Plot data
         all_dat_z = [dat[0][0] for dat in my_UVLF.sorted_data]
@@ -212,14 +217,14 @@ def evolving_UVLF_fit(my_UVLF, backend_file = None, z_plot = None, z_errs = None
             for zbin in [my_UVLF.sorted_data[idx_i] for idx_i in idx]:
             #zbin = my_UVLF.sorted_data[idx[0]]
 
-                for dat_z, fmt in zip(zbin, ['o', 'v', 's', 'D', '^', 'P']):
+                for dat_z, fmt in zip(zbin, ['o', 'v', 'v', 's', 'D', '^', 'P']): #['o', 'v', 's', 'D', '^', 'P']):
                     xdat, ydat, yerr_upper, yerr_lower, xerr, upper_lim_bool = dat_z[2], dat_z[3], dat_z[4], dat_z[5], dat_z[6], dat_z[7].astype('bool')
                     ax.vlines(xdat, np.clip(np.log10(ydat - yerr_lower), -100, 100), np.clip(np.log10(ydat + yerr_upper), -100, 100), ls = '-', colors = navy, linewidth =5)
                     
                     # Show upper limits with a unique plotting style
                     for x, y in zip(xdat[upper_lim_bool], ydat[upper_lim_bool]):
                         ax.vlines(x, np.log10(y)-0.75, np.log10(y), ls = '-', colors = navy, linewidth = 5, alpha = 0.5)
-                        ax.scatter(x, np.log10(y)-0.75, marker = 'v', c = navy, s = 65)
+                        ax.scatter(x-0.015, np.log10(y)-0.75, marker = 'v', c = navy, s = 65) # down arrow
 
                     if dat_z[-1]: # This indicates whether the data was used in the MCMC likelihood or not
                         for x, y in zip(xdat[upper_lim_bool], ydat[upper_lim_bool]):
@@ -354,7 +359,7 @@ def sfe_shape_diff_z(my_UVLF, param_values, zs = None, Mhtab = None, id_max = Fa
     if Mhtab is None: 
         Mhtab = np.linspace(9, 13, 200)
 
-    fig = plt.figure(figsize=(8, 6))            
+    fig = plt.figure(figsize=(6, 4.5))            
     ax_rect  = [0.10, 0.12, 0.78, 0.80]       # left, bottom, width, height (0-1)
     cax_rect = [0.895, 0.12, 0.04, 0.80]      # narrow right slot for cbar
     ax = fig.add_axes(ax_rect)
@@ -402,7 +407,7 @@ def sfe_shape_diff_z(my_UVLF, param_values, zs = None, Mhtab = None, id_max = Fa
     ax.set_yscale('log')
         
         
-    return fig
+    return fig, ax
 
 def sfe_over_time(my_UVLF, param_values, Mhtab = None, zmax = 15, steps = 200):
     """
@@ -798,7 +803,7 @@ def plot_colors():
     # Plot each color as a rectangle
     for i, (hex_color, label) in enumerate(zip(hex_colors, labels)):
         ax.add_patch(plt.Rectangle((i, 0), 1, 1, color=hex_color))
-        ax.text(i + 0.5, -0.2, hex_color, ha='center', va='top', fontsize=15, color='black', rotation=45)
+        ax.text(i + 0.5, -0.2, label, ha='center', va='top', fontsize=15, color='black', rotation=45)
         print(f'{label}: {hex_color}')
     
     # Formatting
@@ -807,7 +812,7 @@ def plot_colors():
     ax.set_frame_on(False)
     
     plt.show()
-    return
+    return fig
 
 def interpolate_colors(hex_colors, total_steps):
     """
@@ -895,8 +900,8 @@ def multicol(gs, axs, xlabel, ylabel, xlims = None, ylims = None, include_legend
     bbox = Bbox.union([ax.get_position() for ax in axs]) # Define the positions of all the axes
     xcenter = bbox.x0 + bbox.width / 2
     ycenter = bbox.y0 + bbox.height / 2
-    fig.text(xcenter, bbox.y0 - 0.02, xlabel, ha='center', va='top')
-    fig.text(bbox.x0 - 0.05, ycenter, ylabel, ha='center', va='center', rotation='vertical')
+    fig.text(xcenter, bbox.y0 - gs.ncols*0.02, xlabel, ha='center', va='top', fontsize = 20)
+    fig.text(bbox.x0 - 0.1 + (gs.ncols/75), ycenter, ylabel, ha='center', va='center', rotation='vertical', fontsize = 20)
 
     # Create legend & place it outside the axes
     if include_legend:
