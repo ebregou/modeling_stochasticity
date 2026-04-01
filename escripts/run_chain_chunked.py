@@ -50,7 +50,7 @@ for z in include_zs:
     # Make & save figures ---------------------------------------------------------------------------------------------------------------------------------------------
 
     # Corner plot
-    corner = eplots.make_corner(my_UVLF) #, true_vals = best_fit)
+    corner = eplots.make_corner(my_UVLF, true_vals = best_fit)
     corner.savefig(f'corner_{z}.png')
 
     # UVLF plot

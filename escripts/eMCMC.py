@@ -15,7 +15,7 @@ from escripts import edata
 
 # MCMC class
 class UVLF():
-    def __init__(self, sorted_data, param_data, Mhpivot = 11, backend_filename = None, precisionboost = 1.5, cut_sig = True, min_t = 5e6):
+    def __init__(self, sorted_data, param_data, Mhpivot = 11, backend_filename = None, precisionboost = 1.5, min_t = 5e6, burn_in = 8000):
         self.sorted_data = sorted_data # This isn't used in the MCMC at all but it's useful to have for plotting results since it divides data
                                         # by redshift & author. There can also be datasets in here that aren't used in the likelihoods-- see 
                                         # edata.sorted_data
@@ -33,7 +33,6 @@ class UVLF():
         self.nwalkers = 2*self.ndim # Walkers = twice the number of parameters
         self.Mhpivot = Mhpivot # The central halo mass that corresponds to sigma_0
         self.backend_filename = backend_filename
-        self.cut_sig = cut_sig # Whether or not to force a small sigma for halos smaller than the atomic cooling limit
         self.min_t = min_t # Minimum time that a halo could convert all of its gas into stars. Used to set min(MUV)
         if self.backend_filename is not None:
             self.backend = emcee.backends.HDFBackend(self.backend_filename)
@@ -53,10 +52,15 @@ class UVLF():
         # Create MCMC sampler
         self.sampler = emcee.EnsembleSampler(self.nwalkers, self.ndim, self.log_prob, backend = self.backend) 
 
+        self.burn_in = burn_in
+
     def calc_min_MUV(self, Mhtab):
         """
         Calculate the brightest galaxies of a given halo mass can be
         """
+        if self.min_t is None:
+            return None
+        
         fb = self.CosmoParams.OmegaB / self.CosmoParams.OmegaM
         max_SFR = Mhtab*fb/self.min_t
         MUV = zeus21.UVLFs.MUV_of_SFR(max_SFR, self.Astro_Parameters._kappaUV)
@@ -75,7 +79,13 @@ class UVLF():
             lpost=self.log_like(paramvector)
         else:
             lpost = 0.0 #doesn't matter, added to -inf
-        return lprior + lpost
+
+        val = lprior + lpost
+        if not np.isscalar(val):
+            print("NON-SCALAR RETURN:", type(val), np.shape(val))
+            raise ValueError
+        
+        return val
  
     def log_prior(self, paramvector):
         """
@@ -163,7 +173,7 @@ class UVLF():
     def time_evolution(self, paramvector, zcenter):
         """
         Applies the time evolution of each parameter so that we feed the evolved value, matching the given redshift, to the UVLF wrapper
-        Applies the halo mass evolution of sigmaUV & ensures that halos smaller than the atomic cooling limit are given small sigmaUV
+        Applies the halo mass evolution and minimum of sigmaUV.
         Inputs:
             paramvector [1darray]: parameters
             zcenter [float]: center redshift value for binned UVLF data
@@ -180,20 +190,6 @@ class UVLF():
         full_paramvector[self.notfit] = insert_default_vals
         full_paramvector[self.fit] = insert_input_vals
 
-        # # Deal with piecewise parameters if necessary
-        # for i, val in enumerate(default_vals):
-        #     if np.isscalar(val):
-        #         insert_vals[i] = val
-        #     else: # Assign the correct value of the parameter if the input is piecewise (find which redshift it matches to)
-        #         zindex = np.where(self.zs == zcenter)[0][0]
-        #         insert_vals[i] = val[zindex]
-
-        # # Get input parameters
-        # final_paramvector = np.zeros(len(paramvector))
-
-        # full_paramvector =  np.zeros(len(self.param_data['label'])) # All parameters accounted for
-        # full_paramvector[self.notfit] = insert_vals
-        # full_paramvector[self.fit] = paramvector
 
         # Apply time evolution
         base_idx = np.arange(0, 10, 2) # The order of the parameters are alternating base & time derivative
@@ -212,11 +208,10 @@ class UVLF():
         sig_array = sig + (dsigdM*(np.log10(self.HMFintclass.Mhtab)-self.Mhpivot))
         sig_array = sig_array.clip(min=min_sig)
 
-        # Assign small sigma to halos below the atomic cooling limit
-        Matom = zeus21.sfrd.Matom(zcenter) # Get the atomic cooling limit at this redshift
-        if self.cut_sig:
-            below_limit = np.where(self.HMFintclass.Mhtab < Matom)[0]
-            sig_array[below_limit] = 1e-4
+        # # Assign small sigma to halos below the atomic cooling limit
+        # Matom = zeus21.sfrd.Matom(zcenter) # Get the atomic cooling limit at this redshift
+        # below_limit = np.where(self.HMFintclass.Mhtab < Matom)[0]
+        # sig_array[below_limit] = 1e-4
 
         param_values[-1] = sig_array 
 
@@ -256,34 +251,36 @@ class UVLF():
                                               Mc=10**log10Mcstar,alphastar=alphastar, betastar=betastar, sigmaUV = sigmaUV)
         return astroparams
 
-    def get_fit(self, backend_file = None, burn_in = None, exclude_unfit = True, include_params = None,):
+    def get_fit(self, backend_file = None, exclude_unfit = True, include_params = None, return_log_prob = False, burn_in = None):
         """
         Get samples and best fit values from MCMC samples (or, if the parameter is not fit, return the default value).
         Inputs:
             backend_file [str]: .h5 file containing previously saved chain
-            burn_in [int]: number of steps to discard as burnin
             exclude_unfit [bool]: whether or not to exclude parameters that are set by default (and not by the MCMC chain) 
-            include_params [list]: use if you only want to return certain parameters. Anything not listed will not be returned. If None, all parameters will be
-                                    returned
+            include_params [list]: use if you only want to return certain parameters. Anything not listed will not be returned. If None, all parameters 
+                                    will be returned
+            return_log_prob [bool]: whether or not to also return the log probability for each sample (for finding the best fit or the best fit in a certain 
+                                    region of parameter space.)
+            burn_in [int]: burn in if different from default
         Outputs:
             samples [Ndarray]: MCMC chain samples
             best_fit [list]: ordered list of best fit parameters (or default parameters where applicable)
             bounds [Nx2 array]: Upper and lower bounds on parameter values that correspond to the 16th & 84th percentile 
             all_labels [list]: TeX representation of parameters, used with make_table()
+            log_prob [list]: Probability of each sample, if return_log_prob
         """
+        if burn_in is None:
+            burn_in = self.burn_in
         if include_params is None:
             include_params = self.param_data.T.keys()
-
-        if burn_in is None: # Standard value of burn in
-            burn_in = 8000
         
         if backend_file is None:
             samples = self.sampler.get_chain(discard = burn_in, flat=True)
             log_prob = self.sampler.get_log_prob(discard=burn_in, flat=True)
         else:
             reader = emcee.backends.HDFBackend(backend_file)
-            samples = reader.get_chain(discard = burn_in, flat=True)
-            log_prob = reader.get_log_prob(discard=burn_in, flat = True)
+            samples = reader.get_chain(discard = self.burn_in, flat=True)
+            log_prob = reader.get_log_prob(discard=self.burn_in, flat = True)
 
         # Get highest probability sample
         best_fit_data = samples[np.argmax(log_prob)]
@@ -307,25 +304,30 @@ class UVLF():
                         continue
                     else:
                         value = self.param_data.T[key].value
-            best_fit.append(round(value, 2))
+            best_fit.append(value)
             all_labels.append(self.param_data.T[key].label)
 
         # Get the bounds on best fit data
-        bounds = np.zeros((len(samples[0]),2))
-        for i in range(len(samples[0])):
-            bounds[i] = np.percentile(samples[:, i], [16, 84])
+        bounds = np.percentile(samples, [16, 84], axis = 0)
 
-        return np.delete(samples, exclude_indices, axis=1), best_fit, bounds, all_labels
+        if return_log_prob:
+            return np.delete(samples, exclude_indices, axis=1), best_fit, bounds, all_labels, log_prob
+        else:
+            return np.delete(samples, exclude_indices, axis=1), best_fit, bounds, all_labels
 
-    def run_MCMC(self, Nsteps = 100000, ICs = None):
+    def run_MCMC(self, Nsteps = None, ICs = None):
         """
         Run MCMC, store the chain that's created
         Inputs:
-            Nsteps [int]: number of steps in the chain. This will be multiplied by self.ndim for the total number of samples
+            Nsteps [int]: number of steps in the chain. This will be multiplied by self.ndim for the total number of samples. If None will default to 25
+                            times the burn in
         Outputs:
             None
         """
         self.sampler.reset()
+
+        if Nsteps is None:
+            Nsteps = 25 * self.burn_in # self.burn_in should be set to twice the autocorrelation length such that this is 50 times the autocorrelation length
         
         # Get ICs for running MCMC
         if ICs is None:
@@ -424,14 +426,63 @@ def get_default_df():
         'dalphadz':{'fit': True, 'value': 0,  'lower': -0.5, 'upper': 0.5, 'label': r"$d\alpha/dz$"},
         'beta':    {'fit': True, 'value': -0.5,  'lower': -2, 'upper': 0, 'label': r"$\beta$"},
         'dbetadz': {'fit': True, 'value': 0,  'lower': -0.5, 'upper': 0.5, 'label': r"$d\beta/dz$"},
-        'logMc':   {'fit': True, 'value': 12, 'lower': 10, 'upper': 16, 'label': r'$\log(M_c)$'},
+        'logMc':   {'fit': True, 'value': 12, 'lower': 10, 'upper': 14, 'label': r'$\log(M_c)$'},
         'dlogMcdz':{'fit': True, 'value': 0,  'lower': -0.5, 'upper': 0.5, 'label': r'$d\log(M_c)/dz$'},
-        'loge':    {'fit': True, 'value': -0.5, 'lower': -4.5, 'upper': 0, 'label': r"$\log(\epsilon_{\star})$"},
+        'loge':    {'fit': True, 'value': -0.5, 'lower': -3, 'upper': 0, 'label': r"$\log(\epsilon_{\star})$"},
         'dlogedz': {'fit': True, 'value': 0,  'lower': -0.5, 'upper': 0.5, 'label': r'$d\log(\epsilon_{\star})/dz$'},
         'sig':     {'fit': True, 'value': 0, 'lower': 0, 'upper': 5, 'label': r'$\sigma_{\rm{UV}, M_c}$'},
-        'dsigdz':  {'fit': True, 'value': 0,  'lower': -0.75, 'upper': 0.5, 'label': r'$d\sigma_{\rm{UV}}/dz$'},
-        'dsigdlogM':  {'fit': True, 'value': 0,  'lower': -2, 'upper': 0.5, 'label': r'$d\sigma_{\rm{UV}}/d\log(M_{h})$'},
+        'dsigdz':  {'fit': True, 'value': 0,  'lower': -0.75, 'upper': 1, 'label': r'$d\sigma_{\rm{UV}}/dz$'},
+        'dsigdlogM':  {'fit': True, 'value': 0,  'lower': -2, 'upper': 1.5, 'label': r'$d\sigma_{\rm{UV}}/d\log(M_{h})$'},
         'min_sig': {'fit': True, 'value': 0.5, 'lower': 0.3, 'upper': 2.5, 'label': r'$\min(\sigma_{\rm{UV}}$)'}
     }
 
     return pd.DataFrame(default_values).T
+
+def get_narrowed_ICs(my_UVLF, best_fit = None, bounds = None, labels = None, backend_file = None, include_params = None):
+    """
+    Get bounds for re-running a chain around the best fit (narrowing the initial conditions)
+    Inputs:
+        my_UVLF [UVLF object]
+        best_fit [list of floats]: best fit values
+        bounds [2darray of floats]: lower & upper bounds on best fit
+        labels [list of strings]: parameter names
+        backend_file [str]: name of file where walkers are stored
+        include_params [list]: list of parameter keys to include
+    Returns:
+        lowers, uppers for ICs in narrowed run, considering phyiscal bounds and the symmetry of the ICs
+    """
+    if backend_file is not None:
+        _, best_fit, bounds, labels = my_UVLF.get_fit(backend_file = backend_file)
+    
+    max_bounds = np.maximum(np.abs(best_fit-bounds[0]), np.abs(bounds[1]-best_fit)) # Largest deviation from the best fit
+    lowers = np.zeros_like(best_fit)
+    uppers = np.zeros_like(best_fit)
+
+    if include_params is None:
+        include_idxs = my_UVLF.fit
+    else:
+        include_idxs = my_UVLF.param_data.T.keys().isin(include_params)
+
+    for i, (bf, label, lower, upper, default_lower, default_upper, max_bound) in enumerate(zip(best_fit, labels, bounds[0], 
+                                                                                    bounds[1], my_UVLF.lowers[include_idxs],
+                                                                             my_UVLF.uppers[include_idxs], max_bounds)):
+        if bf > lower:
+            lowers[i] = lower
+        else:
+            symm = bf - max_bound
+            if symm > default_lower:
+                lowers[i] = symm
+            else:
+                lowers[i] = default_lower
+                print(f'{label} lower, {symm}, out of bounds')
+        if bf < upper:
+            uppers[i] = upper
+        else:
+            symm = bf + max_bound
+            if symm < default_upper:
+                uppers[i] = symm
+            else:
+                uppers[i] = default_upper
+                print(f'{label} upper, {symm}, out of bounds')
+
+    return lowers, uppers

@@ -70,13 +70,14 @@ def percent_diff(x, y0, y1, labels, other_data = None):
     ax[1].plot(x, percent_diff, color = navy)
     ax[1].yaxis.set_major_formatter(ticker.FuncFormatter(custom_percent_formatter)) # Format percent difference with % symbols
 
-    return fig, ax
+    return fig
 
-def make_corner(my_UVLF, backend_file = None, true_vals = None, title = '', burn_in = None, include_params = None, 
+def make_corner(my_UVLF, backend_file = None, samples = None, true_vals = None, title = '', burn_in = None, include_params = None, 
                 sample_color = red, truth_color = turquoise):
     """
     Plot a corner plot, adding true values if any are given.
     Inputs:
+        [eMCMC UVLF object]: UVLF object used for its method for getting stored samples
         backend_file [str]: .h5 file containing previously saved chain
         samples [array]: samples from the MCMC chain
         labels [list of strs]: label for each sample
@@ -91,14 +92,22 @@ def make_corner(my_UVLF, backend_file = None, true_vals = None, title = '', burn
     """
     
     # Get samples & parameter labels, excluding parameters that weren't fit
-    samples, _, _, labels = my_UVLF.get_fit(backend_file, exclude_unfit = True, burn_in = burn_in, include_params = include_params) 
-    
+    if samples is None: # Use the stored samples if the user has not input any
+        samples, _, _, labels = my_UVLF.get_fit(backend_file, exclude_unfit = True, burn_in = burn_in, include_params = include_params) 
+    else: # Just get the names of the parameters if you've input samples
+        fit_params = my_UVLF.param_data['fit'].values.astype(bool)
+        if include_params is not None:
+            include_mask = my_UVLF.param_data.index.isin(include_params)
+            fit_params = fit_params & include_mask
+        labels = my_UVLF.param_data['label'].iloc[fit_params].tolist()
+
 
     if true_vals is None:
-        corner_plot = corner.corner(samples, labels=labels, color = sample_color, plot_contours = True) 
+        corner_plot = corner.corner(samples, labels=labels, color = sample_color, plot_contours = True, plot_datapoints = False, hist_kwargs={'linewidth': 2}, 
+        label_kwargs={"fontsize": 15}) 
     else:
         corner_plot = corner.corner(samples, labels=labels, color = sample_color, truths = true_vals, 
-                                    truth_color= truth_color, plot_contours = True)
+                                    truth_color= truth_color, plot_contours = True, plot_datapoints = False, hist_kwargs={'linewidth': 2})
 
     corner_plot.suptitle(title, y = 1.02)
         
@@ -107,7 +116,7 @@ def make_corner(my_UVLF, backend_file = None, true_vals = None, title = '', burn
 def evolving_UVLF_fit(my_UVLF, backend_file = None, z_plot = None, z_errs = None, plot_from_chain = True, nsamples = 100, 
                       
                       comparison_fits = [], comparison_labels = [], 
-                      ncols = 3, burn_in = None, show_chi2 = True):
+                      ncols = 3, burn_in = None, show_chi2 = True, data_fmt = None, fit_colors = None):
     """
     Plot the UVLF at different redshifts
     Inputs:
@@ -124,6 +133,8 @@ def evolving_UVLF_fit(my_UVLF, backend_file = None, z_plot = None, z_errs = None
         ncols [int]: number of columns to plot
         burn_in [int]: number of samples to discard as burnin. If None, the default value will be used (see UVLF.get_fit())
         show_chi2 [bool]: whether or not to show the chi squared of the fit(s). Does not apply if plot_from_chain is True
+        data_fmt [list]: list of scatter plot styles
+        fit_colors [list]: list of colors for the different models
     Outputs:
         Figure showing the UVLF at different redshfits
     """
@@ -159,6 +170,7 @@ def evolving_UVLF_fit(my_UVLF, backend_file = None, z_plot = None, z_errs = None
     # Get samples & best fit
     if plot_from_chain:
         samples, best_fit, _, _= my_UVLF.get_fit(backend_file = backend_file, exclude_unfit = True, burn_in = burn_in)
+        print(best_fit)
     
     chi2_comparison = [-2*my_UVLF.log_like(fit, dat) for fit in comparison_fits]
 
@@ -173,6 +185,12 @@ def evolving_UVLF_fit(my_UVLF, backend_file = None, z_plot = None, z_errs = None
 
     # Flatten all xdat and xerr across all redshifts and datasets
     MUVcenters, MUVwidths = my_UVLF.get_all_MUV_bins()
+
+    # Plotting details
+    if data_fmt is None:
+        data_fmt = ['o', 's', 'D', 'P']
+    if fit_colors is None:
+        fit_colors = [turquoise, yellow, orange, green]
 
     axs = []
     for i, (z, z_err) in enumerate(zip(z_plot, z_errs)): 
@@ -199,16 +217,14 @@ def evolving_UVLF_fit(my_UVLF, backend_file = None, z_plot = None, z_errs = None
             ax.plot([0], [0], color = red, alpha = 0.1, label = f'{nsamples} samples from chain', linestyle = '-', lw = 5) # Create the label for the samples
 
         # Plot comparison fits
-        for fit, chi2_fit, label, color, ls in zip(comparison_fits, chi2_comparison, comparison_labels, 
-                                                   [orange, green],
-                                                   #[turquoise, yellow, orange, green], 
-                                        ['solid', 'dashdot', 'dashed', 'dotted']):
+        for fit, chi2_fit, label, color, ls in zip(comparison_fits, chi2_comparison, comparison_labels, fit_colors, 
+                                        ['solid', 'dashdot', 'dashed', 'dotted', 'solid']):
             if show_chi2:
                 fit_label = fr'{label}, $\chi^2 = {chi2_fit:.0f}$'
             else:
                 fit_label = f'{label}'
             ax.plot(MUVcenters, np.log10(my_UVLF.UVLF_wrapper(z,z_err,MUVcenters, MUVwidths,fit)), color = color, 
-                       label = fit_label, linestyle = ls, zorder = 1)
+                       label = fit_label, linestyle = ls, zorder = 1, lw = 5)
         
         # Plot data
         all_dat_z = [dat[0][0] for dat in my_UVLF.sorted_data]
@@ -217,7 +233,7 @@ def evolving_UVLF_fit(my_UVLF, backend_file = None, z_plot = None, z_errs = None
             for zbin in [my_UVLF.sorted_data[idx_i] for idx_i in idx]:
             #zbin = my_UVLF.sorted_data[idx[0]]
 
-                for dat_z, fmt in zip(zbin, ['o', 'v', 'v', 's', 'D', '^', 'P']): #['o', 'v', 's', 'D', '^', 'P']):
+                for dat_z, fmt in zip(zbin, data_fmt): 
                     xdat, ydat, yerr_upper, yerr_lower, xerr, upper_lim_bool = dat_z[2], dat_z[3], dat_z[4], dat_z[5], dat_z[6], dat_z[7].astype('bool')
                     ax.vlines(xdat, np.clip(np.log10(ydat - yerr_lower), -100, 100), np.clip(np.log10(ydat + yerr_upper), -100, 100), ls = '-', colors = navy, linewidth =5)
                     
@@ -325,7 +341,7 @@ def PMUV(my_UVLF, param_values, Mhtab = None, zs = None, z_errs = None, MUVcente
 
     # Color bar things:
     if len(Mhtab)>1:
-        cbar = fig.colorbar(sm, ax = axs, boundaries=boundaries, ticks=Mhtab, aspect = 5*math.ceil(nz/ncols))
+        cbar = fig.colorbar(sm, ax = axs, boundaries=boundaries, ticks=Mhtab, aspect = 7*math.ceil(nz/ncols))
         cbar.set_label(r'$\log_{10}{M_h}$')
 
         
@@ -334,10 +350,11 @@ def PMUV(my_UVLF, param_values, Mhtab = None, zs = None, z_errs = None, MUVcente
     xlabel = r'$M_{\rm{UV}}$ [mag]'
     ylabel = r'$p(M_{\rm{UV}}|M_h)$'
     multicol(gs, axs, xlabel, ylabel, ylims = (0.9*all_weights.min(), 1.1*all_weights.max()))
+    multicol(gs, axs, ylims = (0.9*all_weights.min(), 1.1*all_weights.max()))
 
     my_UVLF.HMFintclass.Mhtab = Mhtab_og # Reset the Mhtab
 
-    return fig, axs
+    return fig 
 
 def sfe_shape_diff_z(my_UVLF, param_values, zs = None, Mhtab = None, id_max = False):
     """
@@ -407,7 +424,7 @@ def sfe_shape_diff_z(my_UVLF, param_values, zs = None, Mhtab = None, id_max = Fa
     ax.set_yscale('log')
         
         
-    return fig, ax
+    return fig 
 
 def sfe_over_time(my_UVLF, param_values, Mhtab = None, zmax = 15, steps = 200):
     """
@@ -455,7 +472,7 @@ def sfe_over_time(my_UVLF, param_values, Mhtab = None, zmax = 15, steps = 200):
 
     return fig
 
-def sigma_Mh(my_UVLF, param_values, zs = None):
+def sigma_Mh(my_UVLF, param_values, zs = None, plot_Gelli = True):
     """
     Plot the relationship between sigma & Mh over different redshifts
     Inputs:
@@ -463,53 +480,61 @@ def sigma_Mh(my_UVLF, param_values, zs = None):
                                         right format for zeus21
         param_values [1darray]: values of parameters to calculate SFE
         zs [1darray]: redshifts to plot
+        plot_Gelli [bool]: whether or not to plot the Gelli+24 line for comparison
     Returns:
         fig: A figure showing the relationship between sigma_UV & Mh at different redshifts, compared to the parameterization used in Gelli+24
     """
     
-    fig = plt.figure(figsize=(8, 6))            
+    fig = plt.figure(figsize=(5, 3))            
     ax_rect  = [0.10, 0.12, 0.78, 0.80]       # left, bottom, width, height (0-1)
     cax_rect = [0.895, 0.12, 0.04, 0.80]      # narrow right slot for cbar
     ax = fig.add_axes(ax_rect)
 
     if zs is None:
         zs = np.arange(4, 16, 2)
-
-    cmap, sm, boundaries = create_custom_colorbar([yellow, turquoise], zs)
     
     Mhtab = np.log10(my_UVLF.HMFintclass.Mhtab)
     indices = np.where((Mhtab >= 8.5) & (Mhtab <= 12))[0]
     Mhtab = Mhtab[indices]
     
-    for z in zs:
-        sig_array = my_UVLF.time_evolution(param_values, z)[-1][indices]
+    if len(zs) > 1:
+        cmap, sm, boundaries = create_custom_colorbar([yellow, turquoise], zs)
+        for z in zs:
+            sig_array = my_UVLF.time_evolution(param_values, z)[-1][indices]
 
-        frac = (z - min(zs)) / (max(zs) - min(zs))
-        color = cmap(frac)
+            frac = (z - min(zs)) / (max(zs) - min(zs))
+            color = cmap(frac)
+            ax.plot(Mhtab, sig_array, ls = '-', color = color)
+
+        # Color bar things:
+        cax = fig.add_axes(cax_rect)
+        cbar = fig.colorbar(sm, cax=cax, boundaries=boundaries, ticks=zs, aspect = 14)
+        cbar.set_label(r'$z$')
+
+    else:
+        sig_array = my_UVLF.time_evolution(param_values, zs[0])[-1][indices]
+        color = yellow
         ax.plot(Mhtab, sig_array, ls = '-', color = color)
 
-    # Compare to the Gelli+24 parameterization
-    sig_gelli = (-0.34 * Mhtab) + 4.5
-    ax.plot(Mhtab, sig_gelli, linestyle = '--', color = red, label = 'Gelli+24')
+
+    if plot_Gelli: # Compare to the Gelli+24 parameterization
+        sig_gelli = (-0.34 * Mhtab) + 4.5
+        ax.plot(Mhtab, sig_gelli, linestyle = '--', color = red, label = 'Gelli+24')
+        ax.legend()
 
     # Plot min(sig)
     min_sig = param_values[-1]
-    ax.axhline(min_sig, color = navy, label = r'$\min(\sigma_{\rm{UV}})$')
-
-    # Color bar things:
-    cax = fig.add_axes(cax_rect)
-    cbar = fig.colorbar(sm, cax=cax, boundaries=boundaries, ticks=zs, aspect = 14)
-    cbar.set_label(r'$z$')
+    # ax.axhline(min_sig, zorder = 0, ls = 'dotted', color = 'black', lw = 1)
+    #ax.text(9.5, min_sig + 0.03, r'$\min(\sigma_{\rm{UV}})=$' + f' {round(min_sig, 2)}', size = 15, ha = 'center')
+    ax.axhline(min_sig, zorder = 0, ls = 'dotted', color = navy, lw = 1)
 
     # Labels
     ax.set_xlabel(r'$\log{M_h/M_{\odot}}$')
     ax.set_ylabel(r'$\sigma_{\rm{UV}}$')
-
-    ax.legend()
     
-    return fig
+    return fig 
 
-def walkers(my_UVLF, param_values, backend_file = None, thin = 8000, burn_in = None, ncols = 3):
+def walkers(my_UVLF, param_values, backend_file = None, thin = 8000, burn_in = None, ncols = 3, include_params = None):
     """
     Plot MCMC walkers along with burn in cutoff & best fit parameter values and the imposed upper/lower limits
     Inputs:
@@ -531,32 +556,41 @@ def walkers(my_UVLF, param_values, backend_file = None, thin = 8000, burn_in = N
 
     # Get the standard burn in (for plotting purposes)
     if burn_in is None:
-        burn_in = 8000
+        burn_in = my_UVLF.burn_in
 
     # Thin the chain
     steps = np.arange(0, len(walkers[:,0][:,0]), thin)
     walkers = walkers[0::thin]
+
+    fit_params= my_UVLF.param_data['fit'].values.astype(bool)
+    lowers = my_UVLF.param_data['lower'][fit_params]
+    uppers = my_UVLF.param_data['upper'][fit_params]
+    labels = my_UVLF.param_data['label'][fit_params]
+    if include_params is not None:
+        include = my_UVLF.param_data[fit_params].index.isin(include_params)
+        walkers = walkers[:,:, include]
+        lowers = lowers[include]
+        uppers = uppers[include]
+        labels = labels[include]
 
     # Figure stuff
     nparams = walkers.shape[-1]
     fig = plt.figure()
     plt.subplots_adjust(wspace = 0.4, hspace = 0.2)
     gs = GridSpec(math.ceil((nparams+1)/ncols), ncols, figure=fig)
-
-    fit_params = my_UVLF.param_data['fit'].values.astype(bool)
     
     axs = []
-    for i in range(nparams): # Iterate through the parameters
+    for i, (lower, upper, label) in enumerate(zip(lowers, uppers, labels)): # Iterate through the parameters
         ax = fig.add_subplot(gs[math.floor(i/ncols), i%ncols]) # Add an axis for each parameter
         axs.append(ax)
         for j in range(len(walkers[i])):
             ax.plot(steps, walkers[:,j][:,i], color = red, ls = '-', alpha = 0.3) # Plot each walker for the given parameter
         ax.axhline(param_values[i], color = turquoise, ls = 'dashed', label = 'best fit value') # Plot the best fit value
-        ax.axhline(my_UVLF.param_data['lower'][fit_params].iloc[i], color = yellow, label = 'upper/lower')
-        ax.axhline(my_UVLF.param_data['upper'][fit_params].iloc[i], color = yellow)
+        ax.axhline(lower, color = yellow, label = 'upper/lower')
+        ax.axhline(upper, color = yellow)
         
         # Set label, ticks, etc.
-        ax.set_ylabel(fr'{my_UVLF.param_data['label'][fit_params].iloc[i]}', labelpad = -0.6)
+        ax.set_ylabel(fr'{label}', labelpad = -0.6)
         ax.xaxis.set_major_locator(ticker.MaxNLocator(nbins=4))
         ax.axvline(burn_in, color = navy, ls = '-', label = 'burn in cutoff')
     
@@ -566,6 +600,7 @@ def walkers(my_UVLF, param_values, backend_file = None, thin = 8000, burn_in = N
     multicol(gs, axs, xlabel = 'step number', ylabel = '', include_legend = True)
     
     return fig
+
 
 def PMh(my_UVLF, param_values, MUV_range = None, z_range = None, Mhtab=None, z_err=0.5, ncols=3):
     """
@@ -663,7 +698,7 @@ def PMh(my_UVLF, param_values, MUV_range = None, z_range = None, Mhtab=None, z_e
 
     return fig
 
-def bias(my_UVLF, compare_fits, fit_labels, ncols = 3, z_plot=None, z_errs=None):
+def bias(my_UVLF, compare_fits, fit_labels, ncols = 3, z_plot=None, z_errs=None, fit_colors = None):
     """
     Plot bias vs. bias data
     
@@ -698,13 +733,16 @@ def bias(my_UVLF, compare_fits, fit_labels, ncols = 3, z_plot=None, z_errs=None)
     # Hard code bias data for now
     bias_data = np.loadtxt('/Users/eb35267/Desktop/code/home/data/bias.txt', unpack = True)
 
+    if fit_colors is None:
+        fit_colors = [turquoise, yellow, orange, green]
+
     axs = []
     all_bias = []
     for i, (z, zerr) in enumerate(zip(z_plot, z_errs)):
         ax = fig.add_subplot(gs[math.floor(i/ncols), i%ncols])
         axs.append(ax)
         z_bias = []
-        for (fit, label, color, ls) in zip(compare_fits, fit_labels, [turquoise, yellow, orange, green], ['solid', 'dashdot', 'dashed', 'dotted']): 
+        for (fit, label, color, ls) in zip(compare_fits, fit_labels, fit_colors, ['solid', 'dashdot', 'dotted', 'dashed']): 
             _, bias = my_UVLF.UVLF_wrapper(z, zerr, MUVcenters, MUVwidths, fit, get_bias = True)
             z_bias.append(bias)
             ax.plot(MUVcenters, bias, ls = ls, color = color, label = label)
@@ -735,7 +773,7 @@ def bias(my_UVLF, compare_fits, fit_labels, ncols = 3, z_plot=None, z_errs=None)
 
 # Tables--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
-def make_table(best_fits, param_labels, fit_labels, bounds, file_name = None):
+def make_table(best_fits, param_labels, fit_labels, bounds):
     """
     Make a table to compare best fit values of parameters
     Inputs:
@@ -743,26 +781,22 @@ def make_table(best_fits, param_labels, fit_labels, bounds, file_name = None):
         param_labels [list of strs]: names of parameters (rows of the table)
         fit_labels [list]: names of each type of fit (columns of the table)
         bounds [list of Nx2 arrays]: list of arrays with col1 = lower bound, col2 = upper bound on the best fit parameters
-        file_name [str]: path to saved file if you'd like to save the table
     Outputs:
         dataframe table with labeled parameters for comparison
     """
     df_fill = []
     for best_fit, bound in zip(best_fits, bounds):
         if bound is not None:
-            if any(bound[:,1]-best_fit < 0) or any(bound[:,0]-best_fit > 0): # Check that the bounds make sense
+            if any(bound[1]-best_fit < 0) or any(bound[0]-best_fit > 0): # Check that the bounds make sense
                 print(
                     "Your best fit values are not within your 16th and 84th percentile upper and lower bounds. Take care when interpreting this table and consider broadening your priors."
                 )
-            df_fill.append([f'${bf}^{{+{max(round(bd[1]-bf,2),0)}}}_{{{min(round(bd[0]-bf,2),0)}}}$' for bf, bd in zip(best_fit, bound)])
+            df_fill.append([f'${round(bf, 3)}^{{+{max(round(hi-bf,2),0)}}}_{{{min(round(lo-bf,2),0)}}}$' for bf, lo, hi in zip(best_fit, bound[0], bound[1])])
         else:
             df_fill.append(best_fit)
 
     df = pd.DataFrame(df_fill, columns = param_labels)
     df.index = fit_labels
-
-    if file_name is not None:
-        dfi.export(df.T, file_name, table_conversion = 'matplotlib', use_mathjax = True, dpi = 200)
 
     return df.T
 
@@ -864,7 +898,7 @@ class HandlerStackedLine(HandlerLine2D): # Inherits from the HandlerLine2D class
                 for i in range(len(self.colors))]
     
 
-def multicol(gs, axs, xlabel, ylabel, xlims = None, ylims = None, include_legend = False):
+def multicol(gs, axs, xlabel = '', ylabel = '', xlims = None, ylims = None, include_legend = False):
     """
     Helper function for formatting multi-column plots.
     
@@ -900,7 +934,7 @@ def multicol(gs, axs, xlabel, ylabel, xlims = None, ylims = None, include_legend
     bbox = Bbox.union([ax.get_position() for ax in axs]) # Define the positions of all the axes
     xcenter = bbox.x0 + bbox.width / 2
     ycenter = bbox.y0 + bbox.height / 2
-    fig.text(xcenter, bbox.y0 - gs.ncols*0.02, xlabel, ha='center', va='top', fontsize = 20)
+    fig.text(xcenter, bbox.y0 - gs.ncols*0.02 - 0.01, xlabel, ha='center', va='top', fontsize = 20)
     fig.text(bbox.x0 - 0.1 + (gs.ncols/75), ycenter, ylabel, ha='center', va='center', rotation='vertical', fontsize = 20)
 
     # Create legend & place it outside the axes
