@@ -18,6 +18,7 @@ include_zs = cfg["include_zs"]
 param_input = cfg["param_input"]
 lowers = cfg.get("lowers")
 uppers = cfg.get("uppers")
+precision_boost = cfg.get('precision_boost')
 
 for z in include_zs:
 
@@ -33,9 +34,9 @@ for z in include_zs:
     params = eMCMC.build_param_data(param_input)
 
     # Make the UVLF object
-    my_UVLF = eMCMC.UVLF(sorted_data, params, backend_filename = backend_filename)
+    my_UVLF = eMCMC.UVLF(sorted_data, params, backend_filename = backend_filename, precisionboost = precision_boost)
 
-    # Assign uppres & lowers if necessary
+    # Assign uppers & lowers if necessary
     if lowers is not None:
         ICs = my_UVLF.generate_ICs(lowers, uppers)
     else:

@@ -98,13 +98,17 @@ def make_corner(my_UVLF, backend_file = None, samples = None, true_vals = None, 
         fit_params = my_UVLF.param_data['fit'].values.astype(bool)
         if include_params is not None:
             include_mask = my_UVLF.param_data.index.isin(include_params)
+            include_samples = np.delete(include_mask, ~fit_params) # Samples will just not have the columns that weren't fit so we need to get the right dimensions
+            samples = samples[:,include_samples]
+            if true_vals is not None:
+                true_vals = np.array(true_vals)[include_samples]
             fit_params = fit_params & include_mask
         labels = my_UVLF.param_data['label'].iloc[fit_params].tolist()
 
 
     if true_vals is None:
         corner_plot = corner.corner(samples, labels=labels, color = sample_color, plot_contours = True, plot_datapoints = False, hist_kwargs={'linewidth': 2}, 
-        label_kwargs={"fontsize": 15}) 
+        label_kwargs={"fontsize": 15}, levels = (0.393, 0.864)) # Levels correspond to 1 & 2 sigma 
     else:
         corner_plot = corner.corner(samples, labels=labels, color = sample_color, truths = true_vals, 
                                     truth_color= truth_color, plot_contours = True, plot_datapoints = False, hist_kwargs={'linewidth': 2})
@@ -116,7 +120,7 @@ def make_corner(my_UVLF, backend_file = None, samples = None, true_vals = None, 
 def evolving_UVLF_fit(my_UVLF, backend_file = None, z_plot = None, z_errs = None, plot_from_chain = True, nsamples = 100, 
                       
                       comparison_fits = [], comparison_labels = [], 
-                      ncols = 3, burn_in = None, show_chi2 = True, data_fmt = None, fit_colors = None):
+                      ncols = 4, burn_in = None, show_chi2 = True, data_fmt = None, fit_colors = None):
     """
     Plot the UVLF at different redshifts
     Inputs:
@@ -257,7 +261,7 @@ def evolving_UVLF_fit(my_UVLF, backend_file = None, z_plot = None, z_errs = None
                                                                                     # axis labels                                                                            
         ax.yaxis.set_major_locator(ticker.MaxNLocator(integer=True)) # Make it so that only integers can be used in the  
                                                                                     # axis labels
-        ax.set_title(fr'${round(z-z_err, 1)} \lesssim z \lesssim {round(z+z_err, 1)}$', fontsize = 20, pad = 8)
+        ax.set_title(fr'${round(z-z_err, 2)} \lesssim z \lesssim {round(z+z_err, 2)}$', fontsize = 20, pad = 8)
 
 
     # Text & labels
@@ -500,7 +504,7 @@ def sigma_Mh(my_UVLF, param_values, zs = None, plot_Gelli = True):
     if len(zs) > 1:
         cmap, sm, boundaries = create_custom_colorbar([yellow, turquoise], zs)
         for z in zs:
-            sig_array = my_UVLF.time_evolution(param_values, z)[-1][indices]
+            sig_array = my_UVLF.time_evolution(param_values, z)[-3][indices]
 
             frac = (z - min(zs)) / (max(zs) - min(zs))
             color = cmap(frac)
@@ -769,6 +773,86 @@ def bias(my_UVLF, compare_fits, fit_labels, ncols = 3, z_plot=None, z_errs=None,
 
     return fig
 
+def sigma_over_z(my_UVLF, fits, fit_labels, zs, Mh):
+    """
+    Inputs:
+        my_UVLF [UVLF object]
+        fits [list of 1darrays]: best fit parameters for different fits
+        fit_labels [list of strings]: labels for each fit
+        zs [1darray]: redshifts to plot
+        Mh [float]: log10(M_halo) to calculate sigma(z) at
+    Returns: 
+        fig: shows sigma(z) and plots min(sigma)
+    """
+    # Temporarily set the UVLF HMF to be the value of Mh
+    save_HMF = my_UVLF.HMFintclass.Mhtab
+    my_UVLF.HMFintclass.Mhtab = [10**Mh]
+
+    # Calculate sigma(z)
+    all_sigs = [[my_UVLF.time_evolution(fit, z)[-3][0] for z in zs] for fit in fits]
+    
+    # Plotting
+    fig, ax = plt.subplots()
+
+    for sigs, fit_label in zip(all_sigs, fit_labels):
+        ax.plot(zs, sigs, label = fit_label)
+
+    # Get & plot min(sigma)
+    if len(fits) == 1:
+        if my_UVLF.param_data.loc['min_sig', 'fit'] == False:
+            min_sig = my_UVLF.param_data.loc['min_sig', 'value']
+        else:
+            min_sig = fits[0][11]
+        ax.axhline(min_sig, ls = 'dotted', lw = 1, color = 'black', zorder = 0)
+        ax.text(zs[-3], 1.05*min_sig, r'$\min (\sigma_{\rm{UV}})=$'+f'{round(min_sig, 2)}', ha = 'center')
+
+    # Labels
+    ax.set_ylabel(r'$\sigma_{\rm{UV}}$')
+    ax.set_xlabel('redshift')
+
+    ax.legend()
+
+    # Set the UVLF HMF back to its original value
+    my_UVLF.HMFintclass.Mhtab = save_HMF
+
+    return fig
+
+def delta_chi2(my_UVLF, base, base_name, comparison_fits, labels):
+    """
+    Compare the chi2 of two fits at individual redshifts
+    Inputs:
+        my_UVLF [UVLF object]
+        base [1darray]: baseline fit for comparison
+        base_name [str]: name of the baseline fit for comparison
+        comparison_fits [list of 1darrays]: fits for comparison
+        labels [list of strings]: labels of the fits for comparison
+    Returns:
+        Fig showing the delta chi2 at each redshift as well as the cumulative delta chi2
+    """
+    chisq_base = -2*my_UVLF.log_like(base, return_by_z = True)
+    chisqs_compare = [-2*my_UVLF.log_like(fit, return_by_z = True) for fit in comparison_fits]
+
+    fig, ax = plt.subplots(2, 1, sharex = True)
+    fig.set_size_inches(5, 8)
+    plt.subplots_adjust(hspace = 0)
+
+    for chisq_compare, label, color, ls in zip(chisqs_compare, labels, colors, ['solid', 'dashed', 'dotdash']):
+        delta_chi2 = chisq_compare - chisq_base
+        ax[0].plot(my_UVLF.zs, delta_chi2, color = color, ls = ls, label = label)
+        ax[0].scatter(my_UVLF.zs, delta_chi2, color = color, s = 50)
+        ax[1].plot(my_UVLF.zs, np.cumsum(delta_chi2), color = color, ls = ls)
+        
+
+    ax[0].axhline(0, color = 'black', ls = 'dotted', lw = 1, zorder = 0)
+    ax[0].set_ylabel(r'$\Delta \chi^2$')
+    ax[1].set_ylabel(r'Cumulative $\Delta \chi^2$')
+    ax[1].set_xlabel(r'$z$')
+    ax[0].legend()
+
+    ax[0].set_title(f'Comparison to {base_name}')
+
+    return fig
+
 
 
 # Tables--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -786,16 +870,23 @@ def make_table(best_fits, param_labels, fit_labels, bounds):
     """
     df_fill = []
     for best_fit, bound in zip(best_fits, bounds):
-        if bound is not None:
-            if any(bound[1]-best_fit < 0) or any(bound[0]-best_fit > 0): # Check that the bounds make sense
-                print(
-                    "Your best fit values are not within your 16th and 84th percentile upper and lower bounds. Take care when interpreting this table and consider broadening your priors."
-                )
-            df_fill.append([f'${round(bf, 3)}^{{+{max(round(hi-bf,2),0)}}}_{{{min(round(lo-bf,2),0)}}}$' for bf, lo, hi in zip(best_fit, bound[0], bound[1])])
-        else:
-            df_fill.append(best_fit)
+        has_bounds = bound is not None and ~np.all(np.isnan(bound), axis=0)  # bool array, True where bounds exist
+        
+        if has_bounds.any() and (any(bound[1][has_bounds] - best_fit[has_bounds] < 0) or 
+                                any(bound[0][has_bounds] - best_fit[has_bounds] > 0)):
+            print("Your best fit values are not within your 16th and 84th percentile upper and lower bounds. "
+                "Take care when interpreting this table and consider broadening your priors.")
+        
+        row = []
+        for j, (bf, lo, hi) in enumerate(zip(best_fit, bound[0], bound[1])):
+            if has_bounds[j]:
+                row.append(f'${round(bf, 3)}^{{+{max(round(hi-bf,2),0)}}}_{{{min(round(lo-bf,2),0)}}}$')
+            else:
+                row.append(bf)
+        df_fill.append(row)
 
     df = pd.DataFrame(df_fill, columns = param_labels)
+    df = df.fillna('—')
     df.index = fit_labels
 
     return df.T

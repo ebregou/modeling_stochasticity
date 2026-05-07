@@ -5,7 +5,6 @@
 import numpy as np
 import emcee
 import pandas as pd
-
 import zeus21
 import h5py
 
@@ -15,7 +14,7 @@ from escripts import edata
 
 # MCMC class
 class UVLF():
-    def __init__(self, sorted_data, param_data, Mhpivot = 11, backend_filename = None, precisionboost = 1.5, min_t = 5e6, burn_in = 8000):
+    def __init__(self, sorted_data, param_data, Mhpivot = 11, backend_filename = None, accretion_model = 'RP16', precisionboost = 1.5, min_t = 5e6, burn_in = 8000):
         self.sorted_data = sorted_data # This isn't used in the MCMC at all but it's useful to have for plotting results since it divides data
                                         # by redshift & author. There can also be datasets in here that aren't used in the likelihoods-- see 
                                         # edata.sorted_data
@@ -47,7 +46,8 @@ class UVLF():
 
 
         # Get baseline astronomical parameters
-        self.Astro_Parameters = zeus21.Astro_Parameters(self.UserParams, self.CosmoParams)
+        self.accretion_model = accretion_model
+        self.Astro_Parameters = zeus21.Astro_Parameters(self.UserParams, self.CosmoParams, accretion_model = self.accretion_model)
 
         # Create MCMC sampler
         self.sampler = emcee.EnsembleSampler(self.nwalkers, self.ndim, self.log_prob, backend = self.backend) 
@@ -178,7 +178,7 @@ class UVLF():
             paramvector [1darray]: parameters
             zcenter [float]: center redshift value for binned UVLF data
         Returns:
-            [alphastar, betastar, log10epsstar, log10Mcstar, sigmaUV]: values of these parameters that match the given redshift
+            [alphastar, betastar, log10epsstar, log10Mcstar, sigmaUV, C0, C1]: values of these parameters that match the given redshift
         """
 
         # Deal with piecewise parameters
@@ -190,7 +190,6 @@ class UVLF():
         full_paramvector[self.notfit] = insert_default_vals
         full_paramvector[self.fit] = insert_input_vals
 
-
         # Apply time evolution
         base_idx = np.arange(0, 10, 2) # The order of the parameters are alternating base & time derivative
         param_base = full_paramvector[base_idx]
@@ -201,19 +200,16 @@ class UVLF():
         param_values[3] = min(param_values[3], 0) # beta should be negative
 
         # Apply mass dependence of sigma
-        sig = param_values[-1]
-        dsigdM = full_paramvector[-2]
-        min_sig = full_paramvector[-1]
+        sig = param_values[4]
+        dsigdM = full_paramvector[10]
+        min_sig = full_paramvector[11]
         param_values = list(param_values) # Need to convert to a list such that the last element can be an array
         sig_array = sig + (dsigdM*(np.log10(self.HMFintclass.Mhtab)-self.Mhpivot))
         sig_array = sig_array.clip(min=min_sig)
+        param_values[4] = sig_array 
 
-        # # Assign small sigma to halos below the atomic cooling limit
-        # Matom = zeus21.sfrd.Matom(zcenter) # Get the atomic cooling limit at this redshift
-        # below_limit = np.where(self.HMFintclass.Mhtab < Matom)[0]
-        # sig_array[below_limit] = 1e-4
-
-        param_values[-1] = sig_array 
+        # Add back in C0 & C1 dust parameters
+        param_values.extend(full_paramvector[-2:])
 
         return param_values
     
@@ -246,9 +242,10 @@ class UVLF():
         Outputs:
             astroparams [zeus Astro_Parameters object]: parameters for the UVLF, wrapped so that Zeus can read them
         """
-        alphastar, betastar, log10Mcstar, log10epsstar, sigmaUV = params
+        alphastar, betastar, log10Mcstar, log10epsstar, sigmaUV, C0, C1 = params
         astroparams = zeus21.Astro_Parameters(self.UserParams, self.CosmoParams, epsstar=10**log10epsstar, 
-                                              Mc=10**log10Mcstar,alphastar=alphastar, betastar=betastar, sigmaUV = sigmaUV)
+                                              Mc=10**log10Mcstar,alphastar=alphastar, betastar=betastar, sigmaUV = sigmaUV, C0dust = C0, C1dust = C1,
+                                              accretion_model = self.accretion_model)
         return astroparams
 
     def get_fit(self, backend_file = None, exclude_unfit = True, include_params = None, return_log_prob = False, burn_in = None):
@@ -269,6 +266,7 @@ class UVLF():
             all_labels [list]: TeX representation of parameters, used with make_table()
             log_prob [list]: Probability of each sample, if return_log_prob
         """
+        
         if burn_in is None:
             burn_in = self.burn_in
         if include_params is None:
@@ -288,32 +286,38 @@ class UVLF():
         best_fit = []
         all_labels = []
         exclude_indices = []
+        bounds_insert = []
     
         for index, key in enumerate(self.param_data.T.keys()):
             if key not in include_params:
                 if index not in self.notfit: # Make sure you don't double count if the parameter wasn't fit anyways
-                    exclude_indices.append(i)
+                    exclude_indices.append(i) 
                     i+=1
                 continue
             else: 
                 if self.param_data.T[key].fit: # Get best fit value if the parameter is fit by MCMC
                     value = best_fit_data[i]
+                    bounds_insert.append(index)
                     i += 1
                 else: # Otherwise, take the default value
                     if exclude_unfit:
                         continue
                     else:
-                        value = self.param_data.T[key].value
+                        value = self.param_data.T[key].value 
             best_fit.append(value)
             all_labels.append(self.param_data.T[key].label)
 
         # Get the bounds on best fit data
-        bounds = np.percentile(samples, [16, 84], axis = 0)
-
-        if return_log_prob:
-            return np.delete(samples, exclude_indices, axis=1), best_fit, bounds, all_labels, log_prob
+        if exclude_unfit:
+            bounds= np.percentile(samples, [16, 84], axis = 0)
         else:
-            return np.delete(samples, exclude_indices, axis=1), best_fit, bounds, all_labels
+            bounds = np.full((2, len(best_fit)), np.nan)
+            sampled_bounds = np.percentile(samples, [16, 84], axis = 0)
+            bounds[:, bounds_insert] = sampled_bounds
+        if return_log_prob:
+            return np.delete(samples, exclude_indices, axis=1), np.array(best_fit), bounds, all_labels, log_prob
+        else:
+            return np.delete(samples, exclude_indices, axis=1), np.array(best_fit), bounds, all_labels
 
     def run_MCMC(self, Nsteps = None, ICs = None):
         """
@@ -423,17 +427,19 @@ def get_default_df():
     """
     default_values = {
         'alpha':   {'fit': True, 'value': 0.6, 'lower': 0, 'upper': 2.5, 'label': r"$\alpha$"},
-        'dalphadz':{'fit': True, 'value': 0,  'lower': -0.5, 'upper': 0.5, 'label': r"$d\alpha/dz$"},
+        'dalphadz':{'fit': False, 'value': 0,  'lower': -0.5, 'upper': 0.5, 'label': r"$d\alpha/dz$"},
         'beta':    {'fit': True, 'value': -0.5,  'lower': -2, 'upper': 0, 'label': r"$\beta$"},
-        'dbetadz': {'fit': True, 'value': 0,  'lower': -0.5, 'upper': 0.5, 'label': r"$d\beta/dz$"},
+        'dbetadz': {'fit': False, 'value': 0,  'lower': -0.5, 'upper': 0.5, 'label': r"$d\beta/dz$"},
         'logMc':   {'fit': True, 'value': 12, 'lower': 10, 'upper': 14, 'label': r'$\log(M_c)$'},
-        'dlogMcdz':{'fit': True, 'value': 0,  'lower': -0.5, 'upper': 0.5, 'label': r'$d\log(M_c)/dz$'},
+        'dlogMcdz':{'fit': False, 'value': 0,  'lower': -0.5, 'upper': 0.5, 'label': r'$d\log(M_c)/dz$'},
         'loge':    {'fit': True, 'value': -0.5, 'lower': -3, 'upper': 0, 'label': r"$\log(\epsilon_{\star})$"},
-        'dlogedz': {'fit': True, 'value': 0,  'lower': -0.5, 'upper': 0.5, 'label': r'$d\log(\epsilon_{\star})/dz$'},
+        'dlogedz': {'fit': False, 'value': 0,  'lower': -0.5, 'upper': 0.5, 'label': r'$d\log(\epsilon_{\star})/dz$'},
         'sig':     {'fit': True, 'value': 0, 'lower': 0, 'upper': 5, 'label': r'$\sigma_{\rm{UV}, M_c}$'},
-        'dsigdz':  {'fit': True, 'value': 0,  'lower': -0.75, 'upper': 1, 'label': r'$d\sigma_{\rm{UV}}/dz$'},
-        'dsigdlogM':  {'fit': True, 'value': 0,  'lower': -2, 'upper': 1.5, 'label': r'$d\sigma_{\rm{UV}}/d\log(M_{h})$'},
-        'min_sig': {'fit': True, 'value': 0.5, 'lower': 0.3, 'upper': 2.5, 'label': r'$\min(\sigma_{\rm{UV}}$)'}
+        'dsigdz':  {'fit': False, 'value': 0,  'lower': -0.5, 'upper': 0.5, 'label': r'$d\sigma_{\rm{UV}}/dz$'},
+        'dsigdlogM':  {'fit': False, 'value': 0,  'lower': -1.1, 'upper': 1.1, 'label': r'$d\sigma_{\rm{UV}}/d\log(M_{h})$'},
+        'min_sig': {'fit': False, 'value': 0.3, 'lower': 0.3, 'upper': 2.5, 'label': r'$\min(\sigma_{\rm{UV}}$)'},
+        'C0': {'fit':False, 'value':4.43, 'lower': 2.5, 'upper':4.5, 'label': r'$C_{0}$'},
+        'C1': {'fit': False, 'value': 1.99, 'lower': 1.1, 'upper': 2.1, 'label': r'$C_{1}$'}
     }
 
     return pd.DataFrame(default_values).T

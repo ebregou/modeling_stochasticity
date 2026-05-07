@@ -1,3 +1,5 @@
+# Use this if something happened & not all the plots got saved
+
 from escripts import eMCMC
 from escripts import eplots
 from escripts import edata
@@ -18,21 +20,20 @@ include_zs = cfg["include_zs"]
 param_input = cfg["param_input"]
 lowers = cfg.get("lowers")
 uppers = cfg.get("uppers")
-precision_boost = cfg.get('precision_boost')
 
 # Run MCMC ---------------------------------------------------------------------------------------------------------------------------------------------
 
 # Get the data
 sorted_data = edata.get_sorted(file_names, data_labels, include_zs = include_zs)
 
-# Store the data in a backend .h5 file
-backend_filename = f'/Users/eb35267/Desktop/code/temp/samples_{run_name}.h5'
+# Backend .h5 file
+backend_file = f'/Users/eb35267/Desktop/code/temp/samples_{run_name}.h5'
 
 # Save the parameter data
 params = eMCMC.build_param_data(param_input)
 
 # Make the UVLF object
-my_UVLF = eMCMC.UVLF(sorted_data, params, backend_filename = backend_filename, precisionboost = precision_boost)
+my_UVLF = eMCMC.UVLF(sorted_data, params)
 
 # Assign uppers & lowers if necessary
 if lowers is not None:
@@ -40,20 +41,17 @@ if lowers is not None:
 else:
     ICs = None
 
-# Run the chain
-my_UVLF.run_MCMC(ICs = ICs) # If ICs is None this will assign them based on the upper & lower limits on the parameters
-
 # Save chain information
-walkers, best_fit, bounds, param_labels = my_UVLF.get_fit()
+walkers, best_fit, bounds, param_labels = my_UVLF.get_fit(backend_file = backend_file)
 
 # Make & save figures ---------------------------------------------------------------------------------------------------------------------------------------------
 
 # Corner plot
-corner = eplots.make_corner(my_UVLF, true_vals = best_fit)
+corner = eplots.make_corner(my_UVLF, true_vals = best_fit, backend_file = backend_file)
 corner.savefig('corner.png')
 
 # UVLF plot
-ev_fig = eplots.evolving_UVLF_fit(my_UVLF)
+ev_fig = eplots.evolving_UVLF_fit(my_UVLF, backend_file = backend_file)
 ev_fig.savefig('evolving_UVLF.png')
 
 # SFE(Mh) for different z
@@ -65,7 +63,7 @@ sfe_over_z = eplots.sfe_over_time(my_UVLF, best_fit)
 sfe_over_z.savefig('sfe_over_z.png')
 
 # Plot walkers & burn-in
-walker_fig = eplots.walkers(my_UVLF, best_fit)
+walker_fig = eplots.walkers(my_UVLF, best_fit, backend_file = backend_file)
 walker_fig.savefig('walkers.png')
 
 # Plot sigmaUV vs. Mh at different redshifts
@@ -84,7 +82,7 @@ PMh.savefig('PMh.png')
 table = eplots.make_table([best_fit], param_labels, ['best fit'], [bounds])
 dfi.export(table, 'table.png', table_conversion = 'matplotlib', use_mathjax = True, dpi = 200)
 
-os.replace(backend_filename, 'samples.h5') # Move the h5 file into current directory once the run is done (not before since I have that directory
+os.replace(backend_file, 'samples.h5') # Move the h5 file into current directory once the run is done (not before since I have that directory
                                             # backed up with Box which causes issues)
 
 
