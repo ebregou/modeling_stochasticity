@@ -117,7 +117,7 @@ def make_corner(my_UVLF, backend_file = None, samples = None, true_vals = None, 
         
     return corner_plot
 
-def evolving_UVLF_fit(my_UVLF, backend_file = None, z_plot = None, z_errs = None, plot_from_chain = True, nsamples = 100, 
+def evolving_UVLF_fit(my_UVLF, backend_file = None, z_plot = None, z_errs = None, MUV_dat = None, ylims = None, plot_from_chain = True, nsamples = 100, 
                       
                       comparison_fits = [], comparison_labels = [], 
                       ncols = 4, burn_in = None, show_chi2 = True, data_fmt = None, fit_colors = None):
@@ -129,6 +129,7 @@ def evolving_UVLF_fit(my_UVLF, backend_file = None, z_plot = None, z_errs = None
         z_plot [list of floats]: redshifts to plot, or None if you want to plot all the redshifts for which there exists data
         z_errs [list of floats]: the uncertainty in redshift, or None if you want to use the uncertainty that corresponds to the data.
                                 If you provide redshifts to plot but no redshift error, it will default to 0.5.
+        MUV_dat [tuple of lists]: MUV bins & widths to plot. If None, defaults to the bins defined in my_UVLF.
         plot_from_chain [bool]: whether or not to plot the best fit and samples from the chain stored in my_UVLF. If False, only comparison_fits
                              parameter values will be plotted (so you can quickly check different fits this way).
         nsamples [int]: number of samples from the MCMC chain you want to appear in addition to the best fit
@@ -183,12 +184,17 @@ def evolving_UVLF_fit(my_UVLF, backend_file = None, z_plot = None, z_errs = None
     all_ydat = np.concatenate([np.concatenate([ds[3] for ds in z_separated])  # ds[3] is ydat
                                for z_separated in my_UVLF.sorted_data])
     
-
-    ylo, yhi = np.log10(all_ydat.min()) - 1, np.log10(all_ydat.max()+3)
+    if ylims is None:
+        ylo, yhi = np.log10(all_ydat.min()) - 1, np.log10(all_ydat.max()+3)
+    else: 
+        ylo, yhi = ylims
 
 
     # Flatten all xdat and xerr across all redshifts and datasets
-    MUVcenters, MUVwidths = my_UVLF.get_all_MUV_bins()
+    if MUV_dat is None:
+        MUVcenters, MUVwidths = my_UVLF.get_all_MUV_bins()
+    else:
+        MUVcenters, MUVwidths = MUV_dat
 
     # Plotting details
     if data_fmt is None:

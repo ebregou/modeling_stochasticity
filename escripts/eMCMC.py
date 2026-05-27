@@ -14,7 +14,7 @@ from escripts import edata
 
 # MCMC class
 class UVLF():
-    def __init__(self, sorted_data, param_data, Mhpivot = 11, backend_filename = None, accretion_model = 'RP16', precisionboost = 1.5, min_t = 5e6, burn_in = 8000):
+    def __init__(self, sorted_data, param_data, Mhpivot = 11, backend_filename = None, accretion_model = 'RP16', precisionboost = 1.95, min_t = 5e6, burn_in = 8000):
         self.sorted_data = sorted_data # This isn't used in the MCMC at all but it's useful to have for plotting results since it divides data
                                         # by redshift & author. There can also be datasets in here that aren't used in the likelihoods-- see 
                                         # edata.sorted_data
@@ -437,7 +437,7 @@ def get_default_df():
         'sig':     {'fit': True, 'value': 0, 'lower': 0, 'upper': 5, 'label': r'$\sigma_{\rm{UV}, M_c}$'},
         'dsigdz':  {'fit': False, 'value': 0,  'lower': -0.5, 'upper': 0.5, 'label': r'$d\sigma_{\rm{UV}}/dz$'},
         'dsigdlogM':  {'fit': False, 'value': 0,  'lower': -1.1, 'upper': 1.1, 'label': r'$d\sigma_{\rm{UV}}/d\log(M_{h})$'},
-        'min_sig': {'fit': False, 'value': 0.3, 'lower': 0.3, 'upper': 2.5, 'label': r'$\min(\sigma_{\rm{UV}}$)'},
+        'min_sig': {'fit': False, 'value': 0.3, 'lower': 0.2, 'upper': 2.5, 'label': r'$\min(\sigma_{\rm{UV}}$)'},
         'C0': {'fit':False, 'value':4.43, 'lower': 2.5, 'upper':4.5, 'label': r'$C_{0}$'},
         'C1': {'fit': False, 'value': 1.99, 'lower': 1.1, 'upper': 2.1, 'label': r'$C_{1}$'}
     }
