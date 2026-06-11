@@ -138,7 +138,7 @@ class UVLF():
         
         return np.sum(log_like_z)
 
-    def UVLF_wrapper(self, zcenter, zwidth, MUVcenters, MUVwidths, paramvector, return_weights = False, get_bias = False):
+    def UVLF_wrapper(self, zcenter, zwidth, MUVcenters, MUVwidths, paramvector, return_weights = False, get_bias = False, max_sig = None):
         """
         Computes and returns the UVLF at z=zcenters, with width zwidths, in bins centered at MUVcenters with width MUVwidths
         Inputs:
@@ -150,12 +150,13 @@ class UVLF():
             minMUV [1darray]: alternative minimum MUV
             return_weights [bool]: whether to return the grid of P(MUV|Mh) instead of the UVLF
             get_bias [bool]: whether or not to calculate the bias-weighted UVLF from Zeus & then divide by the ULVF to get back the bias
+            max_sig [float]: maximum value of sigmaUV. Defaults to None
         Outputs:
             PhiUV [1darray]: In units of mag^-1 Mpc^-3
             bias [1darray]: b(MUV) (unitless), returned if get_bias is True
         """
         minMUV = self.calc_min_MUV(self.HMFintclass.Mhtab)
-        params = self.time_evolution(paramvector, zcenter)
+        params = self.time_evolution(paramvector, zcenter, max_sig)
         astroparams = self.param_wrapper(params)
 
         if return_weights:
@@ -170,13 +171,14 @@ class UVLF():
             else:
                 return UVLFs_std
 
-    def time_evolution(self, paramvector, zcenter):
+    def time_evolution(self, paramvector, zcenter, max_sig):
         """
         Applies the time evolution of each parameter so that we feed the evolved value, matching the given redshift, to the UVLF wrapper
         Applies the halo mass evolution and minimum of sigmaUV.
         Inputs:
             paramvector [1darray]: parameters
             zcenter [float]: center redshift value for binned UVLF data
+            max_sig [float]: maximum sigma (if you want to impose one; otherwise None)
         Returns:
             [alphastar, betastar, log10epsstar, log10Mcstar, sigmaUV, C0, C1]: values of these parameters that match the given redshift
         """
@@ -205,7 +207,7 @@ class UVLF():
         min_sig = full_paramvector[11]
         param_values = list(param_values) # Need to convert to a list such that the last element can be an array
         sig_array = sig + (dsigdM*(np.log10(self.HMFintclass.Mhtab)-self.Mhpivot))
-        sig_array = sig_array.clip(min=min_sig)
+        sig_array = sig_array.clip(min=min_sig, max = max_sig)
         param_values[4] = sig_array 
 
         # Add back in C0 & C1 dust parameters
