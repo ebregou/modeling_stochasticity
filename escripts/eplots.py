@@ -98,7 +98,9 @@ def make_corner(my_UVLF, backend_file = None, samples = None, true_vals = None, 
         fit_params = my_UVLF.param_data['fit'].values.astype(bool)
         if include_params is not None:
             include_mask = my_UVLF.param_data.index.isin(include_params)
+            print(include_mask)
             include_samples = np.delete(include_mask, ~fit_params) # Samples will just not have the columns that weren't fit so we need to get the right dimensions
+            print(include_samples)
             samples = samples[:,include_samples]
             if true_vals is not None:
                 true_vals = np.array(true_vals)[include_samples]
@@ -533,10 +535,8 @@ def sigma_Mh(my_UVLF, param_values, zs = None, plot_Gelli = True):
         ax.legend()
 
     # Plot min(sig)
-    min_sig = param_values[-1]
-    # ax.axhline(min_sig, zorder = 0, ls = 'dotted', color = 'black', lw = 1)
-    #ax.text(9.5, min_sig + 0.03, r'$\min(\sigma_{\rm{UV}})=$' + f' {round(min_sig, 2)}', size = 15, ha = 'center')
-    ax.axhline(min_sig, zorder = 0, ls = 'dotted', color = navy, lw = 1)
+    min_sig = param_values[11]
+    ax.axhline(min_sig, zorder = 0, ls = 'dotted', color = navy, lw = 1, label = r'$\min(\sigma_{\rm{UV}})$')
 
     # Labels
     ax.set_xlabel(r'$\log{M_h/M_{\odot}}$')

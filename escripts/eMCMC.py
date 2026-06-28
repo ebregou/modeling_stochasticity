@@ -171,7 +171,7 @@ class UVLF():
             else:
                 return UVLFs_std
 
-    def time_evolution(self, paramvector, zcenter, max_sig):
+    def time_evolution(self, paramvector, zcenter, max_sig = None):
         """
         Applies the time evolution of each parameter so that we feed the evolved value, matching the given redshift, to the UVLF wrapper
         Applies the halo mass evolution and minimum of sigmaUV.
