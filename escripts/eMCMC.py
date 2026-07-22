@@ -264,7 +264,7 @@ class UVLF():
         Outputs:
             samples [Ndarray]: MCMC chain samples
             best_fit [list]: ordered list of best fit parameters (or default parameters where applicable)
-            bounds [Nx2 array]: Upper and lower bounds on parameter values that correspond to the 16th & 84th percentile 
+            bounds [Nx2 array]: Upper and lower bounds on parameter values that correspond to the 16th & 84th percentile (1 sigma)
             all_labels [list]: TeX representation of parameters, used with make_table()
             log_prob [list]: Probability of each sample, if return_log_prob
         """

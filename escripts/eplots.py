@@ -119,10 +119,8 @@ def make_corner(my_UVLF, backend_file = None, samples = None, true_vals = None, 
         
     return corner_plot
 
-def evolving_UVLF_fit(my_UVLF, backend_file = None, z_plot = None, z_errs = None, MUV_dat = None, ylims = None, plot_from_chain = True, nsamples = 100, 
-                      
-                      comparison_fits = [], comparison_labels = [], 
-                      ncols = 4, burn_in = None, show_chi2 = True, data_fmt = None, fit_colors = None):
+def evolving_UVLF_fit(my_UVLF, backend_file = None, z_plot = None, z_errs = None, MUV_dat = None, ylims = None, plot_from_chain = True, nsamples = 100, comparison_dict = {}, ncols = 4, 
+                      burn_in = None, show_chi2 = True, data_fmt = None):
     """
     Plot the UVLF at different redshifts
     Inputs:
@@ -135,13 +133,12 @@ def evolving_UVLF_fit(my_UVLF, backend_file = None, z_plot = None, z_errs = None
         plot_from_chain [bool]: whether or not to plot the best fit and samples from the chain stored in my_UVLF. If False, only comparison_fits
                              parameter values will be plotted (so you can quickly check different fits this way).
         nsamples [int]: number of samples from the MCMC chain you want to appear in addition to the best fit
-        comparison_fits [list of lists]: lists of parameter values that will be used to create comparison UVLFs
-        comparison_labels [list of strs]: labels that correspond to the parameter values in comparison_fits, for the legend
+        comparison_dict [dict]: list the fits with the key 'fit' and the labels for those fits with the key 'label'. Other keys include 'color', 'linestyle', 'linewidth', 'max_sig', and 'zorder' but
+                                there are default values if you don't specify 
         ncols [int]: number of columns to plot
         burn_in [int]: number of samples to discard as burnin. If None, the default value will be used (see UVLF.get_fit())
         show_chi2 [bool]: whether or not to show the chi squared of the fit(s). Does not apply if plot_from_chain is True
         data_fmt [list]: list of scatter plot styles
-        fit_colors [list]: list of colors for the different models
     Outputs:
         Figure showing the UVLF at different redshfits
     """
@@ -162,10 +159,6 @@ def evolving_UVLF_fit(my_UVLF, backend_file = None, z_plot = None, z_errs = None
 
         idxs = np.concatenate([np.where(np.abs(data_z - z) < z_err)[0] for z, z_err in zip(z_plot, z_errs)])
         dat = [my_UVLF.data[i] for i in idxs]
-    
-
-    if len(comparison_fits) > 0:
-        assert len(comparison_labels) > 0, 'If specifying comparison fits you must also give their labels'
 
     # Figure out how many subplots to make
     nz = len(z_plot)
@@ -178,8 +171,6 @@ def evolving_UVLF_fit(my_UVLF, backend_file = None, z_plot = None, z_errs = None
     if plot_from_chain:
         samples, best_fit, _, _= my_UVLF.get_fit(backend_file = backend_file, exclude_unfit = True, burn_in = burn_in)
         print(best_fit)
-    
-    chi2_comparison = [-2*my_UVLF.log_like(fit, dat) for fit in comparison_fits]
 
     # Set the same y limits for all the plots
     # Flatten all ydat values from sorted_data
@@ -187,7 +178,7 @@ def evolving_UVLF_fit(my_UVLF, backend_file = None, z_plot = None, z_errs = None
                                for z_separated in my_UVLF.sorted_data])
     
     if ylims is None:
-        ylo, yhi = np.log10(all_ydat.min()) - 1, np.log10(all_ydat.max()+3)
+        ylo, yhi = np.log10(all_ydat.min()) - 1, np.log10(all_ydat.max()+0.1)
     else: 
         ylo, yhi = ylims
 
@@ -201,8 +192,17 @@ def evolving_UVLF_fit(my_UVLF, backend_file = None, z_plot = None, z_errs = None
     # Plotting details
     if data_fmt is None:
         data_fmt = ['o', 's', 'D', 'P']
-    if fit_colors is None:
-        fit_colors = [turquoise, yellow, orange, green]
+
+    if comparison_dict is not {}: # Set defaults if none are given
+        N = len(comparison_dict['fit'])
+        comparison_dict.setdefault('color', wrap(colors, N))
+        comparison_dict.setdefault('linestyle', wrap(['solid', 'dashed', 'dashdot', 'dotted'], N))
+        comparison_dict.setdefault('linewidth', np.full(N, 4))
+        comparison_dict.setdefault('max_sig', np.full(N, None))
+        comparison_dict.setdefault('zorder', np.full(N, 1))
+
+    dat_zorder = max(comparison_dict['zorder']) + 1
+
 
     axs = []
     for i, (z, z_err) in enumerate(zip(z_plot, z_errs)): 
@@ -229,14 +229,17 @@ def evolving_UVLF_fit(my_UVLF, backend_file = None, z_plot = None, z_errs = None
             ax.plot([0], [0], color = red, alpha = 0.1, label = f'{nsamples} samples from chain', linestyle = '-', lw = 5) # Create the label for the samples
 
         # Plot comparison fits
-        for fit, chi2_fit, label, color, ls in zip(comparison_fits, chi2_comparison, comparison_labels, fit_colors, 
-                                        ['solid', 'dashdot', 'dashed', 'dotted', 'solid']):
-            if show_chi2:
-                fit_label = fr'{label}, $\chi^2 = {chi2_fit:.0f}$'
-            else:
-                fit_label = f'{label}'
-            ax.plot(MUVcenters, np.log10(my_UVLF.UVLF_wrapper(z,z_err,MUVcenters, MUVwidths,fit)), color = color, 
-                       label = fit_label, linestyle = ls, zorder = 1, lw = 5)
+        if comparison_dict is not {}:
+            for fit, label, color, ls, lw, max_sig, zorder in zip(comparison_dict['fit'], comparison_dict['label'], comparison_dict['color'], comparison_dict['linestyle'], comparison_dict['linewidth'], 
+                                                                                                                                                                                comparison_dict['max_sig'],
+                                                                                                                                                                                comparison_dict['zorder']):
+                if show_chi2:
+                    chi2 = -2*my_UVLF.log_like(fit, dat)
+                    fit_label = fr'{label}, $\chi^2 = {chi2:.0f}$'
+                else:
+                    fit_label = f'{label}'
+                ax.plot(MUVcenters, np.log10(my_UVLF.UVLF_wrapper(z,z_err,MUVcenters, MUVwidths,fit, max_sig = max_sig)), color = color, 
+                        label = fit_label, linestyle = ls, lw = lw, zorder = zorder)
         
         # Plot data
         all_dat_z = [dat[0][0] for dat in my_UVLF.sorted_data]
@@ -244,32 +247,31 @@ def evolving_UVLF_fit(my_UVLF, backend_file = None, z_plot = None, z_errs = None
         if len(idx) > 0:
             for zbin in [my_UVLF.sorted_data[idx_i] for idx_i in idx]:
             #zbin = my_UVLF.sorted_data[idx[0]]
-
                 for dat_z, fmt in zip(zbin, data_fmt): 
                     xdat, ydat, yerr_upper, yerr_lower, xerr, upper_lim_bool = dat_z[2], dat_z[3], dat_z[4], dat_z[5], dat_z[6], dat_z[7].astype('bool')
-                    ax.vlines(xdat, np.clip(np.log10(ydat - yerr_lower), -100, 100), np.clip(np.log10(ydat + yerr_upper), -100, 100), ls = '-', colors = navy, linewidth =5)
+                    ax.vlines(xdat, np.clip(np.log10(ydat - yerr_lower), -100, 100), np.clip(np.log10(ydat + yerr_upper), -100, 100), ls = '-', colors = navy, linewidth =5, zorder = dat_zorder)
                     
                     # Show upper limits with a unique plotting style
                     for x, y in zip(xdat[upper_lim_bool], ydat[upper_lim_bool]):
-                        ax.vlines(x, np.log10(y)-0.75, np.log10(y), ls = '-', colors = navy, linewidth = 5, alpha = 0.5)
-                        ax.scatter(x-0.015, np.log10(y)-0.75, marker = 'v', c = navy, s = 65) # down arrow
+                        ax.vlines(x, np.log10(y)-0.75, np.log10(y), ls = '-', colors = navy, linewidth = 5, alpha = 0.5, zorder = dat_zorder)
+                        ax.scatter(x-0.015, np.log10(y)-0.75, marker = 'v', c = navy, s = 65, zorder = dat_zorder) # down arrow
 
                     if dat_z[-1]: # This indicates whether the data was used in the MCMC likelihood or not
                         for x, y in zip(xdat[upper_lim_bool], ydat[upper_lim_bool]):
                             ax.scatter(x, np.log10(y), marker = fmt, label = dat_z[8], facecolors = 'white', edgecolors = navy, s = 125, 
-                                zorder = 4, linewidth = 3)
+                                zorder = dat_zorder, linewidth = 3)
                         for x, y in zip(xdat[np.invert(upper_lim_bool)], ydat[np.invert(upper_lim_bool)]): # Account for the fact that upper limits cannot currently be included in the MCMC likelihood
-                            ax.scatter(x, np.log10(y), marker = fmt, label = dat_z[8], c = navy, s = 125)
+                            ax.scatter(x, np.log10(y), marker = fmt, label = dat_z[8], c = navy, s = 125, zorder = dat_zorder)
                     else: 
                         ax.scatter(xdat, np.log10(ydat), marker = fmt, label = dat_z[8], facecolors = 'white', edgecolors = navy, s = 125, 
-                                zorder = 4, linewidth = 3)
+                                zorder = dat_zorder, linewidth = 3)
 
         ax.invert_xaxis() 
         ax.xaxis.set_major_locator(ticker.MaxNLocator(integer=True)) # Make it so that only integers can be used in the  
                                                                                     # axis labels                                                                            
         ax.yaxis.set_major_locator(ticker.MaxNLocator(integer=True)) # Make it so that only integers can be used in the  
                                                                                     # axis labels
-        ax.set_title(fr'${round(z-z_err, 2)} \lesssim z \lesssim {round(z+z_err, 2)}$', fontsize = 20, pad = 8)
+        ax.set_title(fr'$z = {z} \pm {z_err}$', fontsize = 20, pad = 8) 
 
 
     # Text & labels
@@ -1031,7 +1033,15 @@ def multicol(gs, axs, xlabel = '', ylabel = '', xlims = None, ylims = None, incl
     bbox = Bbox.union([ax.get_position() for ax in axs]) # Define the positions of all the axes
     xcenter = bbox.x0 + bbox.width / 2
     ycenter = bbox.y0 + bbox.height / 2
-    fig.text(xcenter, bbox.y0 - gs.ncols*0.02 - 0.01, xlabel, ha='center', va='top', fontsize = 20)
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+    tight_bboxes = [ax.get_tightbbox(renderer) for ax in axs]
+    lowest_y_display = min(tb.y0 for tb in tight_bboxes)
+    lowest_y_fig = fig.transFigure.inverted().transform((0, lowest_y_display))[1]
+    buffer_inches = 0.15
+    buffer_fig = buffer_inches / fig.get_size_inches()[1]
+    fig.text(xcenter, lowest_y_fig - buffer_fig, xlabel, ha='center', va='top', fontsize=20)
+
     fig.text(bbox.x0 - 0.1 + (gs.ncols/75), ycenter, ylabel, ha='center', va='center', rotation='vertical', fontsize = 20)
 
     # Create legend & place it outside the axes
@@ -1046,5 +1056,14 @@ def multicol(gs, axs, xlabel = '', ylabel = '', xlims = None, ylims = None, incl
         fig_ax = fig.add_subplot(gs[math.floor((N)/gs.ncols), (N)%gs.ncols])
         fig_ax.axis("off")  
         fig_ax.legend(handles, labels, loc='upper center')
+
+def wrap(array, N):
+    """
+    Wrap an array to be N items long
+    Inputs:
+        array [1darray]: array to wrap 
+        N [int]: length of result
+    """
+    return (array * (N // len(array) + 1))[:N]
     
     
