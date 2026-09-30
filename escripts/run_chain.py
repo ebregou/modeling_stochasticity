@@ -44,7 +44,7 @@ else:
 my_UVLF.run_MCMC(ICs = ICs) # If ICs is None this will assign them based on the upper & lower limits on the parameters
 
 # Save chain information
-walkers, best_fit, bounds, param_labels = my_UVLF.get_fit()
+walkers, best_fit, medians, bounds, param_labels = my_UVLF.get_fit()
 
 # Make & save figures ---------------------------------------------------------------------------------------------------------------------------------------------
 

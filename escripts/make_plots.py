@@ -21,9 +21,8 @@ param_input = cfg["param_input"]
 lowers = cfg.get("lowers")
 uppers = cfg.get("uppers")
 
-# Run MCMC ---------------------------------------------------------------------------------------------------------------------------------------------
+# Get the data ---------------------------------------------------------------------------------------------------------------------------------------------
 
-# Get the data
 sorted_data = edata.get_sorted(file_names, data_labels, include_zs = include_zs)
 
 # Backend .h5 file
@@ -42,7 +41,7 @@ else:
     ICs = None
 
 # Save chain information
-walkers, best_fit, bounds, param_labels = my_UVLF.get_fit(backend_file = backend_file)
+walkers, best_fit, medians, bounds, param_labels = my_UVLF.get_fit(backend_file = backend_file)
 
 # Make & save figures ---------------------------------------------------------------------------------------------------------------------------------------------
 
@@ -67,6 +66,7 @@ walker_fig = eplots.walkers(my_UVLF, best_fit, backend_file = backend_file)
 walker_fig.savefig('walkers.png')
 
 # Plot sigmaUV vs. Mh at different redshifts
+print(best_fit)
 sigMh_fig = eplots.sigma_Mh(my_UVLF, best_fit)
 sigMh_fig.savefig('sigvsMh.png')
 

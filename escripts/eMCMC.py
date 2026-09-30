@@ -138,7 +138,8 @@ class UVLF():
         
         return np.sum(log_like_z)
 
-    def UVLF_wrapper(self, zcenter, zwidth, MUVcenters, MUVwidths, paramvector, return_weights = False, get_bias = False, max_sig = None):
+    def UVLF_wrapper(self, zcenter, zwidth, MUVcenters, MUVwidths, paramvector, return_weights = False, get_bias = False, max_sig = None, 
+                     dust_flag = True):
         """
         Computes and returns the UVLF at z=zcenters, with width zwidths, in bins centered at MUVcenters with width MUVwidths
         Inputs:
@@ -151,6 +152,7 @@ class UVLF():
             return_weights [bool]: whether to return the grid of P(MUV|Mh) instead of the UVLF
             get_bias [bool]: whether or not to calculate the bias-weighted UVLF from Zeus & then divide by the ULVF to get back the bias
             max_sig [float]: maximum value of sigmaUV. Defaults to None
+            dust_flag[bool]: whether or not to apply dust when calculating the UVLF
         Outputs:
             PhiUV [1darray]: In units of mag^-1 Mpc^-3
             bias [1darray]: b(MUV) (unitless), returned if get_bias is True
@@ -161,12 +163,13 @@ class UVLF():
 
         if return_weights:
             return zeus21.UVLFs.UVLF_binned(astroparams,self.CosmoParams,self.HMFintclass,zcenter,zwidth,MUVcenters,MUVwidths,minMUV,
-                                            RETURNWEIGHTS = True)
+                                            RETURNWEIGHTS = True, DUST_FLAG = dust_flag)
         else:
-            UVLFs_std = zeus21.UVLFs.UVLF_binned(astroparams,self.CosmoParams,self.HMFintclass,zcenter,zwidth,MUVcenters,MUVwidths, minMUV)
+            UVLFs_std = zeus21.UVLFs.UVLF_binned(astroparams,self.CosmoParams,self.HMFintclass,zcenter,zwidth,MUVcenters,MUVwidths, minMUV, 
+                                                 DUST_FLAG = dust_flag)
             if get_bias:
                 bias_weighted_UVLF = zeus21.UVLFs.UVLF_binned(astroparams,self.CosmoParams,self.HMFintclass,zcenter,zwidth,MUVcenters,MUVwidths, minMUV,
-                                                     RETURNBIAS = True)
+                                                     DUST_FLAG = dust_flag, RETURNBIAS = True)
                 return UVLFs_std, bias_weighted_UVLF/UVLFs_std
             else:
                 return UVLFs_std
@@ -261,9 +264,11 @@ class UVLF():
             return_log_prob [bool]: whether or not to also return the log probability for each sample (for finding the best fit or the best fit in a certain 
                                     region of parameter space.)
             burn_in [int]: burn in if different from default
+            median [bool]: If True, will return median values. If False, will return best fit values
         Outputs:
             samples [Ndarray]: MCMC chain samples
             best_fit [list]: ordered list of best fit parameters (or default parameters where applicable)
+            median [list]: median values of fit parameters
             bounds [Nx2 array]: Upper and lower bounds on parameter values that correspond to the 16th & 84th percentile (1 sigma)
             all_labels [list]: TeX representation of parameters, used with make_table()
             log_prob [list]: Probability of each sample, if return_log_prob
@@ -284,8 +289,9 @@ class UVLF():
 
         # Get highest probability sample
         best_fit_data = samples[np.argmax(log_prob)]
+        medians = np.percentile(samples, 50, axis = 0)
         i = 0
-        best_fit = []
+        central_val = []
         all_labels = []
         exclude_indices = []
         bounds_insert = []
@@ -306,20 +312,20 @@ class UVLF():
                         continue
                     else:
                         value = self.param_data.T[key].value 
-            best_fit.append(value)
+            central_val.append(value)
             all_labels.append(self.param_data.T[key].label)
 
         # Get the bounds on best fit data
         if exclude_unfit:
             bounds= np.percentile(samples, [16, 84], axis = 0)
         else:
-            bounds = np.full((2, len(best_fit)), np.nan)
+            bounds = np.full((2, len(central_val)), np.nan)
             sampled_bounds = np.percentile(samples, [16, 84], axis = 0)
             bounds[:, bounds_insert] = sampled_bounds
         if return_log_prob:
-            return np.delete(samples, exclude_indices, axis=1), np.array(best_fit), bounds, all_labels, log_prob
+            return np.delete(samples, exclude_indices, axis=1), np.array(central_val), medians, bounds, all_labels, log_prob
         else:
-            return np.delete(samples, exclude_indices, axis=1), np.array(best_fit), bounds, all_labels
+            return np.delete(samples, exclude_indices, axis=1), np.array(central_val), medians, bounds, all_labels
 
     def run_MCMC(self, Nsteps = None, ICs = None):
         """
@@ -399,17 +405,18 @@ def build_param_data(custom_params):
     # Master dictionary with defaults for each parameter label
     default_values = get_default_df()
 
-    if custom_params is None:
-        return default_values
-        
-    for label in list(custom_params.keys()): # Label refers to things like 'alpha', 'dsigdz'
-        if label not in default_values.index:
-            raise ValueError(f"No default values found for label: {label}")
-        for sublabel in list(custom_params[label]): # Sublabel refers to things like 'fit' or 'lower'
-            if sublabel not in default_values.keys():
-                raise ValueError(f"No default values found for sublabel: {parameter}")
-            default_values.loc[label, sublabel] = custom_params[label][sublabel]
+    if custom_params is not None:
+        for label in list(custom_params.keys()): # Label refers to things like 'alpha', 'dsigdz'
+            if label not in default_values.index:
+                raise ValueError(f"No default values found for label: {label}")
+            for sublabel in list(custom_params[label]): # Sublabel refers to things like 'fit' or 'lower'
+                if sublabel not in default_values.keys():
+                    raise ValueError(f"No default values found for sublabel: {parameter}")
+                default_values.loc[label, sublabel] = custom_params[label][sublabel]
 
+    need_variable_sig0 = any([default_values.fit['dsigdz'], default_values.fit['dsigdlogM'], default_values.value['dsigdz']!=0, default_values.value['dsigdlogM']!=0]) # Whether sig0 should be allowed to vary below min_sig
+    if not need_variable_sig0: # If sigma should always be greater than or equal to min_sig, enforce that
+        default_values.loc['sig', 'lower'] = default_values.loc['min_sig', 'value']
 
     return default_values
 
